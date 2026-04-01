@@ -4,6 +4,10 @@
 
 A little lightning cloud for fun. [Full Instructable available here.](http://www.instructables.com/id/How-to-make-a-Lightning-Cloud/)
 
+## Security note
+Do not commit Particle device IDs, access tokens, or any other secrets to this repository.
+The sample web controller now asks for credentials at runtime instead of storing them in source.
+
 ##V1.1
 [![Lightning cloud v1.1](http://i.imgur.com/i8TT3HJ.png)](https://www.youtube.com/watch?v=XI98PhaZPTs "Click to see the video")
 

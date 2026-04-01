@@ -1,22 +1,68 @@
-<!-- Replace your-device-ID-goes-here with your actual device ID
-and replace your-access-token-goes-here with your actual access token-->
-<!DOCTYPE>
+<!DOCTYPE html>
 <html>
   <body>
-  <center>
-  <br>
-  <br>
-  <br>
-  <form action="https://api.particle.io/v1/devices/400021000747343337373738/lightning?access_token=5b3dd71af422f403693b305955cd765de6680700" method="POST">
-    Tell your device what to do!<br>
-    <br>
-    <input type="radio" name="args" value="f">Trigger lightning.
-    <br>
-    <input type="radio" name="args" value="g">Trigger nothing.
-    <br>
-    <br>
-    <input type="submit" value="Do it!">
-  </form>
-  </center>
+    <center>
+      <br>
+      <br>
+      <br>
+      <form id="lightning-form">
+        Tell your device what to do!<br>
+        <br>
+        <input type="text" id="deviceId" placeholder="Particle Device ID" required>
+        <br>
+        <br>
+        <input type="password" id="accessToken" placeholder="Particle Access Token" required>
+        <br>
+        <br>
+        <input type="radio" name="args" value="f" checked>Trigger lightning.
+        <br>
+        <input type="radio" name="args" value="g">Trigger nothing.
+        <br>
+        <br>
+        <input type="submit" value="Do it!">
+      </form>
+      <p id="result"></p>
+    </center>
+
+    <script>
+      async function sendCommand(event) {
+        event.preventDefault();
+
+        const deviceId = document.getElementById("deviceId").value.trim();
+        const accessToken = document.getElementById("accessToken").value.trim();
+        const args = document.querySelector('input[name="args"]:checked').value;
+        const result = document.getElementById("result");
+
+        const body = new URLSearchParams({
+          access_token: accessToken,
+          args: args
+        });
+
+        try {
+          const response = await fetch(
+            "https://api.particle.io/v1/devices/" + encodeURIComponent(deviceId) + "/lightning",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+              },
+              body: body.toString()
+            }
+          );
+
+          const payload = await response.json();
+          if (!response.ok) {
+            result.textContent = "Request failed: " + JSON.stringify(payload);
+            return;
+          }
+
+          result.textContent = "Success: " + JSON.stringify(payload);
+        } catch (error) {
+          result.textContent = "Network error: " + error;
+        }
+      }
+
+      document.getElementById("lightning-form").addEventListener("submit", sendCommand);
+    </script>
   </body>
 </html>

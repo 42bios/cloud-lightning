@@ -41,10 +41,7 @@ int NUM_LEDS = 4;
 int LED_PIN = 4;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-const int HIGH_STRIKE_LIKELIHOOD = 5;
-const int LOW_STRIKE_LIKELIHOOD = 10;
 int currentDataPoint = 0;
-int chance = LOW_STRIKE_LIKELIHOOD;
 
 // Simple moving average plot
 int NUM_Y_VALUES = 17;
@@ -72,13 +69,23 @@ float yValues[] = {
 float simple_moving_average_previous = 0;
 float random_moving_average_previous = 0;
 
-float (*functionPtrs[10])(); //the array of function pointers
-int NUM_FUNCTIONS = 2;
+typedef float (*BrightnessFn)();
+BrightnessFn functionPtrs[2];
+const int NUM_FUNCTIONS = 2;
+
+uint8_t toChannel(float brightness) {
+  int scaledWhite = (int)(brightness * 500.0f);
+  if (scaledWhite < 0) {
+    scaledWhite = -scaledWhite;
+  }
+  scaledWhite = constrain(scaledWhite, 0, 255);
+  return (uint8_t)scaledWhite;
+}
 
 void setup() {
   // Setup the Serial connection to talk over Bluetooth
   Serial.begin(9600);
-  
+
   // Neopixel setup
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
@@ -89,19 +96,11 @@ void setup() {
 }
 
 void loop() {
-  String trigger = readFromBluetooth();
-  if (trigger==String("f")) {
-    int led = random(NUM_LEDS);
+  char trigger = readFromBluetooth();
+  if (trigger == 'f') {
     for (int i = 0; i < 10; i++) {
-      // Use this line to keep the lightning focused in one LED.
-      // lightningStrike(led):
-      // Use this line if you want the lightning to spread out among multiple LEDs.
       lightningStrike(random(NUM_LEDS));
     }
-    // Once there's been one strike, I make it more likely that there will be a second.
-    chance = HIGH_STRIKE_LIKELIHOOD;
-  } else {
-    chance = LOW_STRIKE_LIKELIHOOD;
   }
   turnAllPixelsOff();
   delay(1000);
@@ -116,8 +115,8 @@ void turnAllPixelsOff() {
 
 void lightningStrike(int pixel) {
   float brightness = callFunction(random(NUM_FUNCTIONS));
-  float scaledWhite = abs(brightness*500);
-  
+  uint8_t scaledWhite = toChannel(brightness);
+
   strip.setPixelColor(pixel, strip.Color(scaledWhite, scaledWhite, scaledWhite));
   strip.show();
   delay(random(5, 100));
@@ -126,21 +125,17 @@ void lightningStrike(int pixel) {
 }
 
 /**
- * Read the data from the BLE, breaking on '\n' and '\r' characters.
+ * Read a single command byte from BLE, skipping line endings.
  */
-String readFromBluetooth() {
-  String readString = "";
-
-    while (Serial.available()) {
-    delay(10);  //small delay to allow input buffer to fill
-
-    char c = Serial.read(); //gets one byte from serial buffer
+char readFromBluetooth() {
+  while (Serial.available()) {
+    char c = Serial.read();
     if (c == '\n' || c == '\r') {
-      break;
+      continue;
     }
-    readString += c;
+    return c;
   }
-  return readString;
+  return '\0';
 }
 
 float callFunction(int index) {
@@ -151,8 +146,8 @@ float callFunction(int index) {
 float simple_moving_average() {
   uint32_t startingValue = currentDataPoint;
   uint32_t endingValue = (currentDataPoint+1)%NUM_Y_VALUES;
-  float simple_moving_average_current = simple_moving_average_previous + 
-                                  (yValues[startingValue])/NUM_Y_VALUES - 
+  float simple_moving_average_current = simple_moving_average_previous +
+                                  (yValues[startingValue])/NUM_Y_VALUES -
                                   (yValues[endingValue])/NUM_Y_VALUES;
 
   simple_moving_average_previous = simple_moving_average_current;
