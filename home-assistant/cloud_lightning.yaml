@@ -1,0 +1,60 @@
+# Home Assistant package: let the lightning cloud show real lightning strikes
+# near you, reported by the Blitzortung.org network.
+#
+# Needs:
+# - the "Blitzortung" integration (HACS). It uses your home coordinates (or a
+#   zone / person) and a radius you choose, and only reports strikes inside it.
+# - WiFi cloud: the MQTT integration and a broker (e.g. Mosquitto add-on).
+# - Zigbee cloud: ZHA or Zigbee2MQTT with the cloud paired.
+#
+# Install: copy this file to /config/packages/ and enable packages in
+# configuration.yaml:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# Adjust the entity id below if you named the Blitzortung integration
+# differently (default name "Blitzortung" -> sensor.blitzortung_lightning_distance).
+
+input_boolean:
+  cloud_lightning_blitzortung:
+    name: Lightning cloud shows real strikes
+    icon: mdi:weather-lightning
+
+automation:
+  - id: cloud_lightning_blitzortung
+    alias: Lightning cloud - real strikes from Blitzortung
+    description: Sends every strike reported by Blitzortung to the lightning cloud.
+    mode: queued
+    max: 10
+    max_exceeded: silent
+    triggers:
+      # The distance sensor (and its lat/lon attributes) is updated for every
+      # new strike, so any change means a new strike.
+      - trigger: state
+        entity_id: sensor.blitzortung_lightning_distance
+    conditions:
+      - condition: state
+        entity_id: input_boolean.cloud_lightning_blitzortung
+        state: "on"
+      - condition: template
+        value_template: "{{ is_number(trigger.to_state.state) }}"
+    actions:
+      - variables:
+          # The cloud expects km; convert if Home Assistant shows miles.
+          km: >
+            {{ (trigger.to_state.state | float
+                * (1.609 if trigger.to_state.attributes.unit_of_measurement == 'mi' else 1))
+               | round(1) }}
+      # WiFi cloud: topic = <DEVICE_ID>/strike of the (leader) cloud.
+      - action: mqtt.publish
+        data:
+          topic: cloud-lightning/strike
+          payload: "{{ km }}"
+      # Zigbee cloud instead: remove the action above and uncomment this one.
+      # Use the entity id of the cloud's analog output ("Real strike") number.
+      # - action: number.set_value
+      #   target:
+      #     entity_id: number.lightning_cloud_number
+      #   data:
+      #     value: "{{ km }}"
