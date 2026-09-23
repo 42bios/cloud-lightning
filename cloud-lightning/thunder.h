@@ -2,7 +2,8 @@
  * Copyright (c) 2015 Molly Nicholas
  * All rights reserved. See LICENSE for the full license text.
  *
- * Optional thunder sound via a DFPlayer Mini MP3 module.
+ * Optional thunder: sound via a DFPlayer Mini MP3 module (Thunder) and a
+ * vibration motor that rumbles with close thunder (Rumble).
  *
  * Shared by cloud-lightning (Arduino) and cloud-lightning-esp32.
  * Both copies of this file must stay identical.
@@ -19,6 +20,9 @@
  * - it lasts longer the farther away the strike is (the sound of the long
  *   channel arrives spread out over time) and the more strokes it had, then
  *   fades out. Use sound files at least 15 s long.
+ *
+ * The vibration motor only rumbles with close thunder (< RUMBLE_MAX_KM):
+ * a hard jolt for a crack, then a decaying, uneven rumble.
  */
 
 #ifndef CLOUD_THUNDER_H
@@ -33,6 +37,21 @@ const unsigned int THUNDER_MIN_MS = 2500;
 const unsigned int THUNDER_MAX_MS = 15000;
 const unsigned long THUNDER_FADE_STEP_MS = 100;
 const uint8_t THUNDER_QUEUE_SIZE = 4;
+
+const float RUMBLE_MAX_KM = 8;       // only close thunder can be felt
+const uint8_t RUMBLE_MIN_PWM = 70;   // below this most motors don't turn
+const unsigned long RUMBLE_STEP_MS = 30;
+
+// When the thunder of a strike at the given distance arrives.
+inline unsigned long thunderDelayMs(float km) {
+  return (unsigned long)(km / SPEED_OF_SOUND_KM_PER_S * 1000);
+}
+
+// How long the thunder of a strike rolls.
+inline unsigned int thunderDurationMs(float km, uint8_t strokes) {
+  unsigned int duration = THUNDER_MIN_MS + km * 700 + strokes * 600;
+  return constrain(duration, THUNDER_MIN_MS, THUNDER_MAX_MS);
+}
 
 class Thunder {
 public:
@@ -64,11 +83,10 @@ public:
       return;
     }
     Pending &p = queue[pending++];
-    p.at = millis() + (unsigned long)(km / SPEED_OF_SOUND_KM_PER_S * 1000);
+    p.at = millis() + thunderDelayMs(km);
     p.volume = 30 - (uint8_t)(km / THUNDER_MAX_KM * 20);  // 30 close, 10 far
     p.folder = km < THUNDER_CLOSE_KM ? 1 : km < THUNDER_MEDIUM_KM ? 2 : 3;
-    unsigned int duration = THUNDER_MIN_MS + km * 700 + strokes * 600;
-    p.durationMs = constrain(duration, THUNDER_MIN_MS, THUNDER_MAX_MS);
+    p.durationMs = thunderDurationMs(km, strokes);
   }
 
   // Call from loop(). Starts thunder that is due and fades out the current one.
@@ -133,6 +151,89 @@ private:
     frame[8] = checksum & 0xFF;
     player.write(frame, sizeof(frame));
   }
+};
+
+// Vibration motor on a PWM pin, driven through a transistor or MOSFET with a
+// flyback diode (never directly from the pin).
+class Rumble {
+public:
+  explicit Rumble(uint8_t motorPin) : pin(motorPin) {}
+
+  void begin() {
+    pinMode(pin, OUTPUT);
+    analogWrite(pin, 0);
+  }
+
+  void setEnabled(bool on) {
+    enabled = on;
+    if (!on) {
+      cancel();
+    }
+  }
+
+  void cancel() {
+    pending = 0;
+    active = false;
+    analogWrite(pin, 0);
+  }
+
+  // Schedules the rumble for a flash at the given distance.
+  void strikeAt(float km, uint8_t strokes) {
+    if (!enabled || km < 0 || km > RUMBLE_MAX_KM || pending >= THUNDER_QUEUE_SIZE) {
+      return;
+    }
+    Pending &p = queue[pending++];
+    p.at = millis() + thunderDelayMs(km);
+    p.durationMs = thunderDurationMs(km, strokes) / 2;  // felt shorter than heard
+    p.strength = 255 - (uint8_t)(km / RUMBLE_MAX_KM * 120);
+    p.crack = km < THUNDER_CLOSE_KM;
+  }
+
+  // Call from loop().
+  void update() {
+    for (uint8_t i = 0; i < pending; i++) {
+      if ((long)(millis() - queue[i].at) >= 0) {
+        current = queue[i];
+        queue[i] = queue[--pending];
+        active = true;
+        startedAt = millis();
+        lastStepAt = 0;
+        break;
+      }
+    }
+
+    if (!active || millis() - lastStepAt < RUMBLE_STEP_MS) {
+      return;
+    }
+    lastStepAt = millis();
+    unsigned long t = millis() - startedAt;
+    if (t >= current.durationMs) {
+      analogWrite(pin, 0);
+      active = false;
+      return;
+    }
+    // A crack starts with a hard jolt, then the rumble decays unevenly.
+    float envelope = current.crack && t < 150 ? 1.0 : exp(-3.0 * t / current.durationMs);
+    int level = current.strength * envelope * random(45, 101) / 100;
+    analogWrite(pin, level >= RUMBLE_MIN_PWM ? level : 0);
+  }
+
+private:
+  struct Pending {
+    unsigned long at;
+    unsigned int durationMs;
+    uint8_t strength;
+    bool crack;
+  };
+
+  uint8_t pin;
+  bool enabled = true;
+  Pending queue[THUNDER_QUEUE_SIZE];
+  uint8_t pending = 0;
+  Pending current;
+  bool active = false;
+  unsigned long startedAt = 0;
+  unsigned long lastStepAt = 0;
 };
 
 #endif

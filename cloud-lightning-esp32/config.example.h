@@ -4,9 +4,8 @@
 // ---------------------------------------------------------------------------
 // Connectivity: choose exactly one.
 //
-// NONE:   standalone. The cloud runs its own random storm; the BOOT button
-//         starts a thunderstorm (short press) or switches the random storm
-//         on and off (hold 2 s). Any ESP32, e.g. a small ESP32-C3.
+// NONE:   standalone. The cloud runs its own random storm and is controlled
+//         with its button. Any ESP32, e.g. a small ESP32-C3.
 // WiFi:   any ESP32 except the H2. Home Assistant via MQTT (discovery).
 // Zigbee: ESP32-C6 or ESP32-H2. Joins your existing Zigbee network (ZHA or
 //         Zigbee2MQTT) as a router. In the Arduino IDE select
@@ -35,14 +34,15 @@
 
 // Several clouds (Bluetooth LE, works with every connectivity) ---------------
 // Exactly one cloud is the leader: it decides the flashes, takes the commands
-// and real strikes and broadcasts every flash over BLE. The others only
-// listen, so they can be small boards with CONNECTIVITY_NONE.
-// All clouds of an installation use the same SYNC_GROUP (0-255), so two
-// installations next to each other don't mix.
-#define CLOUD_COUNT 1       // number of clouds in the installation
-#define CLOUD_POSITION 0    // this cloud: 0 .. CLOUD_COUNT-1, from left to right
-#define CLOUD_LEADER true   // true for exactly one cloud
-#define SYNC_GROUP 1
+// and real strikes and broadcasts every flash over BLE. The others (followers)
+// only listen, so they can be small boards with CONNECTIVITY_NONE.
+// Followers pair automatically when switched on right next to the leader.
+// #define ENABLE_SYNC
+#define CLOUD_LEADER true   // false for the followers
+// How close a follower has to be to pair (signal strength in dBm): -50 is a
+// few cm with the antennas close together. Lower it (e.g. -60) if pairing
+// does not start inside the case.
+#define PAIRING_RSSI -50
 
 // LEDs and button ------------------------------------------------------------
 // More LEDs spread across the cloud make the flashes look more spatial.
@@ -55,17 +55,39 @@
 #endif
 
 // Thunder (optional) ---------------------------------------------------------
-// DFPlayer Mini MP3 module, see thunder.h for the sound files. Uncomment when
-// the module is connected. It can then be switched on and off at runtime.
+// Sound via a DFPlayer Mini MP3 module (see thunder.h for the sound files)
+// and/or a vibration motor. Uncomment what is connected. Both can then be
+// switched on and off at runtime.
 // #define ENABLE_THUNDER
+// #define ENABLE_RUMBLE
 #if CONFIG_IDF_TARGET_ESP32
 #define DFPLAYER_RX_PIN 16  // ESP32 RX <- DFPlayer TX
 #define DFPLAYER_TX_PIN 17  // ESP32 TX -> DFPlayer RX (via 1k resistor)
+#define RUMBLE_PIN 25       // PWM -> MOSFET -> vibration motor
 #else
-#define DFPLAYER_RX_PIN 6   // ESP32-C3/C6/H2 RX <- DFPlayer TX
-#define DFPLAYER_TX_PIN 7   // ESP32-C3/C6/H2 TX -> DFPlayer RX (via 1k resistor)
+#define DFPLAYER_RX_PIN 6   // RX <- DFPlayer TX
+#define DFPLAYER_TX_PIN 7   // TX -> DFPlayer RX (via 1k resistor)
+#define RUMBLE_PIN 5        // PWM -> MOSFET -> vibration motor
 #endif
 // With several clouds that each have a speaker: true = every cloud only
 // thunders for flashes that start in it, so the thunder comes from the right
 // direction. false = this cloud thunders for every flash (one speaker setup).
 #define THUNDER_OWN_FLASHES_ONLY false
+
+// Music mode (optional, leader only) ----------------------------------------
+// I2S microphone (INMP441 or similar, L/R pin to GND): the cloud flashes on
+// the beat, without thunder. Switch it on with a double click or in Home
+// Assistant.
+// #define ENABLE_MICROPHONE
+#if CONFIG_IDF_TARGET_ESP32
+#define MIC_SCK_PIN 26
+#define MIC_WS_PIN 27
+#define MIC_SD_PIN 33
+#else
+#define MIC_SCK_PIN 1
+#define MIC_WS_PIN 3
+#define MIC_SD_PIN 0
+#endif
+// Beats quieter than this are ignored. Raise it if the cloud flashes in a
+// quiet room, lower it if it misses quiet music.
+#define MIC_NOISE_FLOOR 20000

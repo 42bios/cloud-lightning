@@ -14,9 +14,10 @@ The flash animation was rewritten to follow how real lightning behaves:
 
 - **Stepped leader:** a few faint flickers before the main flash.
 - **Return strokes:** one bright main stroke followed by 1–4 weaker subsequent strokes, 30–120 ms apart.
+- **Continuing current:** some strokes keep glowing and flickering for up to 200 ms, as real ones do.
 - **Afterglow:** every stroke fades out exponentially instead of switching off hard.
+- **Colour:** the channel itself is white with a touch of blue. Light scattered through the cloud, coming from far away or fading out turns violet. So the LEDs around the channel, distant sheet lightning and the afterglow are more violet than the core of a close flash.
 - **Gamma correction:** brightness is corrected for the non-linear perception of the eye, so fades look smooth.
-- **Colour:** slightly blue-white instead of pure white.
 - **Light spreads inside the cloud:** neighbouring LEDs glow along, and the channel sometimes wanders to the next LED.
 - **Distance:** every flash has a distance. Close strikes are bright with several strokes, distant ones are faint, diffuse sheet lightning.
 - **Realistic timing:** pauses between flashes are exponentially distributed (mostly short, occasionally long).
@@ -24,8 +25,10 @@ The flash animation was rewritten to follow how real lightning behaves:
 
 All of the following is optional:
 
-- **Thunder:** follows the flash with the real delay of sound (about 3 s per km). It cracks sharply when close and only rumbles when far, lasts longer for distant strikes and flashes with more strokes, gets quieter with distance and stays silent beyond 15 km. Can be switched on and off at runtime.
-- **Several clouds:** an installation with e.g. 3 clouds shares one storm over Bluetooth LE, without WiFi or Home Assistant. The clouds don't just show the same: a flash stays inside one cloud, jumps on from cloud to cloud, or lights the others faintly from the side, and each cloud flickers in its own way.
+- **Thunder:** follows the flash with the real delay of sound (about 3 s per km). It cracks sharply when close and only rumbles when far, lasts longer for distant strikes and flashes with more strokes, gets quieter with distance and stays silent beyond 15 km.
+- **Vibration:** a small vibration motor rumbles with close thunder: a hard jolt for a crack, then a decaying, uneven rumble. It is switched together with the thunder sound.
+- **Several clouds:** an installation with e.g. 3 clouds shares one storm over Bluetooth LE, without WiFi or Home Assistant. New clouds pair automatically when switched on next to the main cloud. The clouds don't just show the same: a flash stays inside one cloud, jumps on from cloud to cloud, or lights the others faintly from the side, and each cloud flickers in its own way.
+- **Music mode:** with a microphone the cloud flashes on the beat, without thunder.
 - **Home Assistant:** over WiFi (MQTT) or Zigbee, chosen in the configuration. Without it, the cloud runs its own random storm.
 - **Real lightning:** through Home Assistant the cloud shows real strikes around your location, reported by [Blitzortung.org](https://www.blitzortung.org).
 
@@ -42,17 +45,50 @@ The Particle Photon version was removed because the Photon has reached end of li
 | Folder | Hardware | Control |
 | --- | --- | --- |
 | `cloud-lightning/` | Arduino + Bluefruit BLE module | BLE app |
-| `cloud-lightning-esp32/` | ESP32, ESP32-C3, ESP32-C6 | standalone, Home Assistant over WiFi or Zigbee |
+| `cloud-lightning-esp32/` | ESP32, ESP32-C3, ESP32-C6 | button, Home Assistant over WiFi or Zigbee |
 
 The ESP32 version is set up in `config.h`, choosing exactly one connectivity:
 
-- **None:** standalone. The cloud runs its own random storm. The BOOT button starts a thunderstorm (short press) or switches the random storm on and off (hold 2 s).
+- **None:** standalone. The cloud runs its own random storm and is controlled with its button.
 - **WiFi:** Home Assistant with an MQTT broker (e.g. the Mosquitto add-on). The cloud appears automatically via MQTT discovery.
 - **Zigbee** (ESP32-C6 or -H2): your existing Zigbee coordinator (ZHA or Zigbee2MQTT). The cloud joins as a router, so it also strengthens your Zigbee mesh.
 
-No base station is needed in any mode. Recommended boards: an **ESP32-C6** for the main cloud (it can do WiFi and Zigbee, so you can switch without new hardware) and a small **ESP32-C3** (e.g. SuperMini) for additional clouds that only listen over BLE.
+No base station is needed in any mode. Recommended boards: an **ESP32-C6** for the main cloud (it can do WiFi and Zigbee, so you can switch without new hardware) and a small **ESP32-C3** (e.g. SuperMini) for additional clouds.
 
-**Power:** a cloud with a network connection is meant to be mains powered with a 5 V USB power supply (2 A with thunder, 1 A without), with the cable running along the cord the cloud hangs from. WiFi and a Zigbee router stay awake all the time and would empty a battery within about a day. Follower clouds that only listen over BLE are smaller and simpler, but listening all the time still takes about 80–100 mA: an ESP32-C3 with a 2000 mAh battery lasts roughly a day. That is enough for an evening or a party, but not for permanent use.
+### Button (ESP32)
+
+Every ESP32 cloud has one button (the BOOT button, or your own on `BUTTON_PIN`). While you hold it, the cloud blinks once at 2, 6 and 10 s, so you know when to let go.
+
+| | Main cloud (leader) | Additional cloud (follower) |
+| --- | --- | --- |
+| Click | Thunderstorm | Test flash |
+| Double click | Music mode on/off | – |
+| Hold 2 s | Ambient storm on/off | – |
+| Hold 6 s | New installation: forget all paired clouds | Forget the main cloud, pair again |
+| Hold 10 s | Zigbee: leave the network and pair again | – |
+
+### Power and hanging
+
+The clouds are meant to be powered permanently. WiFi, a Zigbee router and a BLE follower all listen all the time (a follower still draws about 80–100 mA), so a battery would last about a day. That is fine for an evening, not for permanent use.
+
+The cord the cloud hangs from can carry the power:
+
+- **Thin two-core cable as the cord:** e.g. transparent or textile-covered 2 × 0.5 mm² cable as used for pendant lamps. Use strain relief at both ends (a knot or cable grip inside the case) so the solder joints never carry the weight.
+- **Low-voltage wire rope system** (tension wire system, as used for 12 V lighting): two tensioned steel wires carry 12 V along the ceiling, and each cloud hangs from them with two clamps. This works well for several clouds in a row.
+- **12 V or 24 V instead of 5 V** on longer or thinner cables: a small step-down converter to 5 V in each case (e.g. a Mini560) keeps the current and voltage drop low.
+
+Rough budget per cloud at 5 V: board 0.1–0.2 A, LEDs short peaks up to 60 mA each at full white, DFPlayer with speaker up to 0.5 A, vibration motor about 0.1 A. A 5 V / 2 A supply is plenty for one cloud with everything.
+
+### Building the cloud for natural light
+
+How the LEDs sit in the cloud matters as much as the code:
+
+- **Never let the LEDs shine straight out.** Point them inwards or upwards onto a white inner shell or into the filling, so you see scattered light, not points.
+- **Place LEDs at different depths:** some close under the surface (a close flash shows as a brighter spot), some deep inside (diffuse glow). The code already makes neighbouring LEDs glow along and more violet, which looks like light scattered through the cloud.
+- **Order the LEDs along the cloud** (e.g. from left to right), because the flash spreads to neighbouring LED numbers and the channel wanders to the next one.
+- **More LEDs spread out** (8–16 instead of 4) make the flashes far more spatial.
+- **Filling:** pillow stuffing or cotton wool, loosely plucked and glued to the shell, diffuses best. Denser at the bottom, where you look from.
+- **Vibration motor:** glue it to the shell, not to the case with the electronics, so the cloud itself trembles.
 
 ### Commands (Arduino + BLE)
 
@@ -60,7 +96,7 @@ No base station is needed in any mode. Recommended boards: an **ESP32-C6** for t
 | --- | --- |
 | `f` | Start a short thunderstorm (3–6 flashes) |
 | `a` | Toggle ambient mode (endless distant storm) |
-| `t` | Toggle thunder sound |
+| `t` | Toggle thunder (sound and vibration) |
 | `s` | Stop everything |
 | `b<km>` | Show a real strike at the given distance, e.g. `b12.5` |
 
@@ -68,19 +104,22 @@ Send the commands over BLE, for example with the Adafruit Bluefruit app.
 
 ### ESP32 in Home Assistant
 
-**WiFi:** the cloud shows up as a device with the buttons *Thunderstorm* and *Stop* and the switches *Ambient storm* and *Thunder sound*. Real strikes are published to `<DEVICE_ID>/strike` as the distance in km.
+**WiFi:** the cloud shows up as a device with the buttons *Thunderstorm* and *Stop* and the switches *Ambient storm*, *Thunder* (sound and vibration) and *Music mode*. Real strikes are published to `<DEVICE_ID>/strike` as the distance in km.
 
-**Zigbee:** the cloud offers four endpoints: on/off lights for *Thunderstorm* (turns off when the storm has ended), *Ambient storm* and *Thunder sound*, and an analog output (a number in Home Assistant) that shows a real strike at the written distance in km. Rename the entities in Home Assistant as you like. It pairs automatically when it is not in a network yet. Hold the BOOT button for 3 s to leave the network and pair again. With ZHA the endpoints work directly. Zigbee2MQTT may need an external converter for the analog output.
+**Zigbee:** the cloud offers on/off lights for *Thunderstorm* (turns off when the storm has ended), *Ambient storm*, *Thunder* and *Music mode*, and an analog output (a number in Home Assistant) that shows a real strike at the written distance in km. Rename the entities in Home Assistant as you like. It pairs automatically when it is not in a network yet. With ZHA the endpoints work directly. Zigbee2MQTT may need an external converter for the analog output.
 
-In both modes, ambient mode and sound are remembered across restarts.
+In all modes, ambient mode and thunder are remembered across restarts.
 
 ### Several clouds (Bluetooth LE)
 
 The clouds of an installation share one storm over Bluetooth LE. This works with every connectivity, also without WiFi and Home Assistant.
 
-1. Give all clouds the same `SYNC_GROUP` and `CLOUD_COUNT` (and, with WiFi, each its own `DEVICE_ID`).
-2. Number them with `CLOUD_POSITION` from left to right (0, 1, 2 …).
-3. Set `CLOUD_LEADER true` on exactly one cloud. It runs the storm, receives the commands and real strikes, and broadcasts every flash. The others only listen, so they can be small ESP32-C3 boards with `CONNECTIVITY_NONE`.
+1. Main cloud: `#define ENABLE_SYNC` and `CLOUD_LEADER true`.
+2. Additional clouds: `#define ENABLE_SYNC`, `CLOUD_LEADER false` and usually `CONNECTIVITY_NONE`.
+3. Switch on a new cloud right next to the main cloud, a few cm apart. It pulses blue while searching, faster while joining, and flashes twice when it is paired. It remembers the main cloud from then on.
+4. Pair the clouds in the order they hang, starting next to the main cloud: the first becomes position 1, the next 2 and so on. The flash jumps between neighbouring positions.
+
+If pairing does not start inside the case, lower `PAIRING_RSSI` (e.g. to -60). To start over, hold the main cloud's button for 6 s (new installation) and each additional cloud's button for 6 s (forget the main cloud), then pair again.
 
 The clouds don't simply show the same flash. Each flash starts in one cloud and is one of three kinds:
 
@@ -88,23 +127,33 @@ The clouds don't simply show the same flash. Each flash starts in one cloud and 
 - **Jump:** the channel moves on to the neighbouring clouds in one direction, a moment later and weaker in each.
 - **Big strike:** it lights the other clouds faintly from the side, where not every stroke is visible.
 
-Distant sheet lightning lights all clouds faintly. The rhythm of the strokes is the same everywhere because it is one flash. Where it flickers and how bright is different in every cloud.
+Distant sheet lightning lights all clouds faintly. The rhythm of the strokes is the same everywhere because it is one flash. Where it flickers, how bright and which colour is different in every cloud.
 
 With thunder, either one cloud has a speaker and plays every thunder, or several clouds have speakers and each plays only the thunder of flashes that start in it (`THUNDER_OWN_FLASHES_ONLY true`). Then the thunder comes from the right direction.
 
 BLE together with WiFi works on all ESP32 boards. BLE together with Zigbee on the ESP32-C6 compiles, but has not been tested on hardware yet.
 
+### Music mode (optional)
+
+An I2S microphone (INMP441 or similar, L/R pin to GND) on the main cloud makes all clouds flash on the beat. A beat is a short moment clearly louder than the last second, so it adapts to the volume by itself. Louder beats give brighter flashes that can jump between the clouds, quieter ones only a faint glow.
+
+There is no thunder or vibration in music mode: the speaker would trigger the microphone, and thunder does not go with music. The storm pauses and comes back when music mode is switched off.
+
+1. Wire the microphone (3.3 V, GND, SCK, WS, SD; pins in `config.h`).
+2. Uncomment `#define ENABLE_MICROPHONE` in `config.h`.
+3. Switch music mode on with a double click or in Home Assistant. If the cloud flashes in a quiet room, raise `MIC_NOISE_FLOOR`; if it misses quiet music, lower it.
+
 ### Configuration
 
-- Arduino: `NUM_LEDS`, `LED_PIN` and `ENABLE_THUNDER` in `cloud-lightning.ino`.
-- ESP32: copy `config.example.h` to `config.h` and fill in connectivity, WiFi/MQTT, clouds, LEDs and thunder. `config.h` is ignored by git. Libraries: `Adafruit NeoPixel`; with WiFi also `PubSubClient`; with several clouds also `NimBLE-Arduino` (2.x).
-- `lightning.h`: colour (`LIGHTNING_R/G/B`), storm pace (`STORM_MEAN_PAUSE_MS`, `AMBIENT_MEAN_PAUSE_MS`) and how distance changes a flash (`CLOSE_STRIKE_KM`, `MAX_STRIKE_KM`).
-- `thunder.h`: number of sound files per folder (`THUNDER_TRACKS`) and thunder length (`THUNDER_MIN_MS`, `THUNDER_MAX_MS`).
+- Arduino: `NUM_LEDS`, `LED_PIN`, `ENABLE_THUNDER` and `ENABLE_RUMBLE` in `cloud-lightning.ino`.
+- ESP32: copy `config.example.h` to `config.h` and fill in connectivity, WiFi/MQTT, clouds, LEDs, thunder and microphone. `config.h` is ignored by git. Libraries: `Adafruit NeoPixel`; with WiFi also `PubSubClient`; with several clouds also `NimBLE-Arduino` (2.x).
+- `lightning.h`: colours (`CORE_R/G/B`, `SCATTER_R/G/B`), storm pace (`STORM_MEAN_PAUSE_MS`, `AMBIENT_MEAN_PAUSE_MS`) and how distance changes a flash (`CLOSE_STRIKE_KM`, `MAX_STRIKE_KM`).
+- `thunder.h`: number of sound files per folder (`THUNDER_TRACKS`), thunder length (`THUNDER_MIN_MS`, `THUNDER_MAX_MS`) and vibration (`RUMBLE_MAX_KM`, `RUMBLE_MIN_PWM`).
 - `lightning.h` and `thunder.h` are shared. The copies in both sketch folders must stay identical, because Arduino only compiles files inside the sketch folder. The GitHub workflow checks this and compiles all variants.
 
 ### Thunder (optional)
 
-Uses a DFPlayer Mini MP3 module. No extra library is needed.
+**Sound** uses a DFPlayer Mini MP3 module. No extra library is needed.
 
 1. Wire the DFPlayer Mini: power, a speaker, and
    - Arduino: DFPlayer TX → pin 10, DFPlayer RX → pin 11 (through a 1 kΩ resistor)
@@ -117,7 +166,13 @@ Uses a DFPlayer Mini MP3 module. No extra library is needed.
 
    Set `THUNDER_TRACKS` in `thunder.h` to the number of files per folder.
 3. Uncomment `#define ENABLE_THUNDER` in `cloud-lightning.ino` (Arduino) or `config.h` (ESP32).
-4. Switch the sound on and off at runtime with `t` (Arduino) or the *Thunder sound* switch in Home Assistant.
+
+**Vibration** uses a small vibration motor (coin or ERM, 3–5 V) switched by a logic-level MOSFET (e.g. AO3400) or an NPN transistor, with a flyback diode (e.g. 1N4148) across the motor. Never drive it straight from the pin.
+
+1. Wire it to `RUMBLE_PIN`: Arduino pin 5, ESP32 GPIO 25, ESP32-C3 / -C6 GPIO 5.
+2. Uncomment `#define ENABLE_RUMBLE`.
+
+Switch sound and vibration on and off together with `t` (Arduino), in Home Assistant (*Thunder*), or they stay as saved.
 
 ### Real lightning from Blitzortung.org (optional)
 
@@ -128,7 +183,7 @@ Blitzortung.org only gives raw data to people who run their own detector station
 3. WiFi: nothing else to do. Zigbee: switch to the `number.set_value` action described in the file.
 4. Turn on *Lightning cloud shows real strikes* in Home Assistant.
 
-Every strike inside your radius now flashes the cloud: close ones bright, distant ones as faint sheet lightning, with thunder at the real delay if sound is enabled. With several clouds, send the strikes to the leader. The Arduino + BLE version has no network connection and cannot receive real strikes.
+Every strike inside your radius now flashes the cloud: close ones bright, distant ones as faint sheet lightning, with thunder at the real delay if it is enabled. With several clouds, send the strikes to the main cloud. The Arduino + BLE version has no network connection and cannot receive real strikes.
 
 ## V1.1
 [![Lightning cloud v1.1](http://i.imgur.com/i8TT3HJ.png)](https://www.youtube.com/watch?v=XI98PhaZPTs "Click to see the video")

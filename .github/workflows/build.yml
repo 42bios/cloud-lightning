@@ -24,62 +24,41 @@ jobs:
           - name: arduino BLE
             sketch: cloud-lightning
             fqbn: arduino:avr:uno
-            core: arduino:avr
-          - name: arduino BLE + thunder
+          - name: arduino BLE + thunder + rumble
             sketch: cloud-lightning
             fqbn: arduino:avr:uno
-            core: arduino:avr
-            thunder: true
-          - name: esp32 WiFi
-            sketch: cloud-lightning-esp32
-            fqbn: esp32:esp32:esp32
-            core: esp32:esp32
-          - name: esp32 WiFi + thunder
-            sketch: cloud-lightning-esp32
-            fqbn: esp32:esp32:esp32
-            core: esp32:esp32
-            thunder: true
+            enable: THUNDER RUMBLE
           - name: esp32 standalone
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32
-            core: esp32:esp32
-            config: >-
-              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
-              s|^// #define CONNECTIVITY_NONE|#define CONNECTIVITY_NONE|
-          - name: esp32 WiFi leader of 3 clouds + thunder
+            connectivity: NONE
+          - name: esp32 WiFi
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32
-            core: esp32:esp32
-            thunder: true
-            config: >-
-              s|^#define CLOUD_COUNT 1|#define CLOUD_COUNT 3|
-          - name: esp32-c3 standalone follower of 3 clouds + thunder
+          - name: esp32 WiFi leader, everything
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32
+            enable: SYNC THUNDER RUMBLE MICROPHONE
+          - name: esp32-c3 standalone follower + rumble
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32c3
-            core: esp32:esp32
-            thunder: true
-            config: >-
-              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
-              s|^// #define CONNECTIVITY_NONE|#define CONNECTIVITY_NONE|;
-              s|^#define CLOUD_COUNT 1|#define CLOUD_COUNT 3|;
-              s|^#define CLOUD_POSITION 0|#define CLOUD_POSITION 1|;
-              s|^#define CLOUD_LEADER true|#define CLOUD_LEADER false|
+            connectivity: NONE
+            enable: SYNC RUMBLE
+            config: s|^#define CLOUD_LEADER true.*|#define CLOUD_LEADER false|
+          - name: esp32-c3 standalone leader + microphone
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32c3
+            connectivity: NONE
+            enable: SYNC MICROPHONE
           - name: esp32-c6 Zigbee
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr
-            core: esp32:esp32
-            config: >-
-              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
-              s|^// #define CONNECTIVITY_ZIGBEE|#define CONNECTIVITY_ZIGBEE|
-          - name: esp32-c6 Zigbee leader of 3 clouds + thunder
+            connectivity: ZIGBEE
+          - name: esp32-c6 Zigbee leader, everything
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr
-            core: esp32:esp32
-            thunder: true
-            config: >-
-              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
-              s|^// #define CONNECTIVITY_ZIGBEE|#define CONNECTIVITY_ZIGBEE|;
-              s|^#define CLOUD_COUNT 1|#define CLOUD_COUNT 3|
+            connectivity: ZIGBEE
+            enable: SYNC THUNDER RUMBLE MICROPHONE
     env:
       ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: https://espressif.github.io/arduino-esp32/package_esp32_index.json
     steps:
@@ -88,22 +67,25 @@ jobs:
       - name: Install core and libraries
         run: |
           arduino-cli core update-index
-          arduino-cli core install ${{ matrix.core }}
+          arduino-cli core install ${{ startsWith(matrix.fqbn, 'esp32') && 'esp32:esp32' || 'arduino:avr' }}
           arduino-cli lib install "Adafruit NeoPixel" PubSubClient NimBLE-Arduino
-      - name: Use example config
-        if: matrix.sketch == 'cloud-lightning-esp32'
+      - name: Configure
         run: |
-          cp cloud-lightning-esp32/config.example.h cloud-lightning-esp32/config.h
-          if [ -n "${{ matrix.config }}" ]; then
-            sed -i "${{ matrix.config }}" cloud-lightning-esp32/config.h
+          cd ${{ matrix.sketch }}
+          if [ -f config.example.h ]; then
+            cp config.example.h config.h
           fi
-      - name: Enable thunder
-        if: matrix.thunder
-        run: |
-          sed -i 's|^// #define ENABLE_THUNDER|#define ENABLE_THUNDER|' ${{ matrix.sketch }}/*.ino ${{ matrix.sketch }}/*.h
-          grep -q '^#define ENABLE_THUNDER' ${{ matrix.sketch }}/*
-      - name: Show config
-        if: matrix.sketch == 'cloud-lightning-esp32'
-        run: grep -E '^#define (CONNECTIVITY|CLOUD|ENABLE)' cloud-lightning-esp32/config.h
+          if [ -n "${{ matrix.connectivity }}" ]; then
+            sed -i 's|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|' config.h
+            sed -i 's|^// #define CONNECTIVITY_${{ matrix.connectivity }}|#define CONNECTIVITY_${{ matrix.connectivity }}|' config.h
+          fi
+          for feature in ${{ matrix.enable }}; do
+            sed -i "s|^// #define ENABLE_$feature\$|#define ENABLE_$feature|" *.ino *.h
+            grep -q "^#define ENABLE_$feature\$" *.ino *.h
+          done
+          if [ -n "${{ matrix.config }}" ]; then
+            sed -i "${{ matrix.config }}" config.h
+          fi
+          grep -hE '^#define (CONNECTIVITY|ENABLE|CLOUD_LEADER)' *.ino *.h || true
       - name: Compile
         run: arduino-cli compile --fqbn ${{ matrix.fqbn }} --warnings all ${{ matrix.sketch }}

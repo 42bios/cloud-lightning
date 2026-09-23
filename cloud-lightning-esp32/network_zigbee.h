@@ -6,10 +6,11 @@
  *   10  on/off light   Thunderstorm (on = start; turns off when it has ended)
  *   11  on/off light   Ambient storm
  *   12  analog output  Real strike: write the distance in km
- *   13  on/off light   Thunder sound (only with ENABLE_THUNDER)
+ *   13  on/off light   Thunder, sound and vibration (only with thunder hardware)
+ *   14  on/off light   Music mode (only with ENABLE_MICROPHONE)
  *
  * The cloud starts pairing automatically when it is not in a network yet.
- * Hold the BOOT button for 3 s to leave the network and pair again.
+ * Hold the button for 10 s to leave the network and pair again.
  */
 
 #include "Zigbee.h"
@@ -21,14 +22,17 @@
 ZigbeeLight zbStorm(10);
 ZigbeeLight zbAmbient(11);
 ZigbeeAnalog zbStrike(12);
-#ifdef ENABLE_THUNDER
+#ifdef HAS_THUNDER
 ZigbeeLight zbSound(13);
+#endif
+#ifdef ENABLE_MICROPHONE
+ZigbeeLight zbMusic(14);
 #endif
 
 // The Zigbee callbacks run in the Zigbee task. They only queue the request;
 // loop() carries it out, so the LEDs are never driven from two tasks at once.
 // setLight() also calls the callbacks; our own state updates are ignored.
-enum ZbRequestType : uint8_t { ZB_STORM, ZB_AMBIENT, ZB_SOUND, ZB_STRIKE };
+enum ZbRequestType : uint8_t { ZB_STORM, ZB_AMBIENT, ZB_SOUND, ZB_MUSIC, ZB_STRIKE };
 struct ZbRequest {
   ZbRequestType type;
   bool on;
@@ -58,6 +62,10 @@ void onZbSound(bool on) {
   zbQueue(ZB_SOUND, on, 0);
 }
 
+void onZbMusic(bool on) {
+  zbQueue(ZB_MUSIC, on, 0);
+}
+
 void onZbStrike(float km) {
   zbQueue(ZB_STRIKE, false, km);
 }
@@ -68,9 +76,12 @@ void networkPublishState() {
   }
   zbPublishing = true;
   zbStorm.setLight(lightning.stormActive());
-  zbAmbient.setLight(lightning.ambient());
-#ifdef ENABLE_THUNDER
-  zbSound.setLight(soundEnabled());
+  zbAmbient.setLight(ambientEnabled());
+#ifdef HAS_THUNDER
+  zbSound.setLight(thunderEnabled());
+#endif
+#ifdef ENABLE_MICROPHONE
+  zbMusic.setLight(musicEnabled());
 #endif
   zbPublishing = false;
 }
@@ -87,9 +98,13 @@ void networkSetup() {
   Zigbee.addEndpoint(&zbStorm);
   Zigbee.addEndpoint(&zbAmbient);
   Zigbee.addEndpoint(&zbStrike);
-#ifdef ENABLE_THUNDER
+#ifdef HAS_THUNDER
   zbSound.onLightChange(onZbSound);
   Zigbee.addEndpoint(&zbSound);
+#endif
+#ifdef ENABLE_MICROPHONE
+  zbMusic.onLightChange(onZbMusic);
+  Zigbee.addEndpoint(&zbMusic);
 #endif
 
 #ifdef ZIGBEE_MODE_ZCZR
@@ -101,8 +116,6 @@ void networkSetup() {
     Serial.println("Zigbee failed to start, restarting");
     ESP.restart();
   }
-
-  pinMode(BOOT_PIN, INPUT_PULLUP);
 }
 
 void networkLoop() {
@@ -120,7 +133,10 @@ void networkLoop() {
         commandAmbient(request.on);
         break;
       case ZB_SOUND:
-        commandSound(request.on);
+        commandThunder(request.on);
+        break;
+      case ZB_MUSIC:
+        commandMusic(request.on);
         break;
       case ZB_STRIKE:
         commandStrike(request.km);
@@ -133,16 +149,9 @@ void networkLoop() {
     zbWasConnected = Zigbee.connected();
     networkPublishState();
   }
+}
 
-  // Hold BOOT for 3 s: leave the network and start pairing again.
-  if (digitalRead(BOOT_PIN) == LOW) {
-    unsigned long pressedAt = millis();
-    while (digitalRead(BOOT_PIN) == LOW) {
-      delay(50);
-      if (millis() - pressedAt > 3000) {
-        Serial.println("Leaving Zigbee network");
-        Zigbee.factoryReset();
-      }
-    }
-  }
+// Leave the Zigbee network and start pairing again (restarts the board).
+void networkReset() {
+  Zigbee.factoryReset();
 }

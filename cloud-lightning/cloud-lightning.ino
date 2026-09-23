@@ -31,10 +31,11 @@
 #include <Adafruit_NeoPixel.h>
 #include "lightning.h"
 
-// Optional thunder sound via a DFPlayer Mini MP3 module (see thunder.h).
-// Uncomment when the module is connected. It can then still be switched
-// on and off at runtime with the "t" command.
+// Optional thunder (see thunder.h): sound via a DFPlayer Mini MP3 module
+// and/or a vibration motor on a PWM pin. Uncomment what is connected. Both
+// can then be switched on and off at runtime with the "t" command.
 // #define ENABLE_THUNDER
+// #define ENABLE_RUMBLE
 
 // More LEDs spread across the cloud make the flashes look more spatial.
 const int NUM_LEDS = 4;
@@ -42,15 +43,24 @@ const int LED_PIN = 4;
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 CloudLightning lightning(strip);
 
+#if defined(ENABLE_THUNDER) || defined(ENABLE_RUMBLE)
+#include "thunder.h"
+bool thunderOn = true;
+#endif
+
 #ifdef ENABLE_THUNDER
 #include <SoftwareSerial.h>
-#include "thunder.h"
 
 const int DFPLAYER_RX_PIN = 10; // Arduino RX <- DFPlayer TX
 const int DFPLAYER_TX_PIN = 11; // Arduino TX -> DFPlayer RX (via 1k resistor)
 
 SoftwareSerial dfSerial(DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
 Thunder thunder(dfSerial);
+#endif
+
+#ifdef ENABLE_RUMBLE
+const int RUMBLE_PIN = 5;       // PWM pin -> MOSFET/transistor -> motor
+Rumble rumble(RUMBLE_PIN);
 #endif
 
 void setup() {
@@ -65,6 +75,9 @@ void setup() {
 #ifdef ENABLE_THUNDER
   dfSerial.begin(9600);
 #endif
+#ifdef ENABLE_RUMBLE
+  rumble.begin();
+#endif
 }
 
 void loop() {
@@ -77,17 +90,22 @@ void loop() {
     thunder.strikeAt(flash.km, flash.strokes);
   }
   thunder.update();
-#else
-  (void)flashed;
 #endif
+#ifdef ENABLE_RUMBLE
+  if (flashed) {
+    rumble.strikeAt(flash.km, flash.strokes);
+  }
+  rumble.update();
+#endif
+  (void)flashed;
 }
 
 /**
  * f      = start a short thunderstorm
  * a      = toggle ambient mode (endless distant storm)
- * t      = toggle thunder sound
+ * t      = toggle thunder (sound and vibration)
  * s      = stop everything
- * b<km>  = real strike at the given distance, e.g. "b12.5" (see bridge/)
+ * b<km>  = real strike at the given distance, e.g. "b12.5"
  */
 void handleCommand(char command) {
   switch (command) {
@@ -99,17 +117,26 @@ void handleCommand(char command) {
       Serial.println(lightning.ambient() ? F("ambient on") : F("ambient off"));
       break;
     case 't':
+#if defined(ENABLE_THUNDER) || defined(ENABLE_RUMBLE)
+      thunderOn = !thunderOn;
 #ifdef ENABLE_THUNDER
-      thunder.setEnabled(!thunder.isEnabled());
-      Serial.println(thunder.isEnabled() ? F("sound on") : F("sound off"));
+      thunder.setEnabled(thunderOn);
+#endif
+#ifdef ENABLE_RUMBLE
+      rumble.setEnabled(thunderOn);
+#endif
+      Serial.println(thunderOn ? F("thunder on") : F("thunder off"));
 #else
-      Serial.println(F("sound not enabled in firmware"));
+      Serial.println(F("thunder not enabled in firmware"));
 #endif
       break;
     case 's':
       lightning.stop();
 #ifdef ENABLE_THUNDER
       thunder.cancel();
+#endif
+#ifdef ENABLE_RUMBLE
+      rumble.cancel();
 #endif
       Serial.println(F("stopped"));
       break;
