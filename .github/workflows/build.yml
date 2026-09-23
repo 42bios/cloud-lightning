@@ -47,6 +47,8 @@ jobs:
         run: cp cloud-lightning-esp32/config.example.h cloud-lightning-esp32/config.h
       - name: Enable thunder
         if: matrix.thunder
-        run: sed -i 's|^// #define ENABLE_THUNDER|#define ENABLE_THUNDER|' ${{ matrix.sketch }}/*.ino ${{ matrix.sketch }}/*.h
+        run: |
+          sed -i 's|^// #define ENABLE_THUNDER|#define ENABLE_THUNDER|' ${{ matrix.sketch }}/*.ino ${{ matrix.sketch }}/*.h
+          grep -q '^#define ENABLE_THUNDER' ${{ matrix.sketch }}/*
       - name: Compile
         run: arduino-cli compile --fqbn ${{ matrix.fqbn }} --warnings all ${{ matrix.sketch }}
