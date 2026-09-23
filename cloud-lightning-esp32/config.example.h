@@ -57,10 +57,11 @@
 #define BUTTON_PIN 9        // BOOT button (ESP32-C3, -C6, -H2)
 #endif
 
-// Thunder (optional) ---------------------------------------------------------
-// Sound via a DFPlayer Mini MP3 module (see thunder.h for the sound files)
-// and/or a vibration motor. Uncomment what is connected. Both can then be
-// switched on and off at runtime.
+// Thunder and vibration (optional) ------------------------------------------
+// Thunder sound via a DFPlayer Mini MP3 module (see thunder.h for the sound
+// files) and a vibration motor that now and then trembles with a strike right
+// above the cloud. Uncomment what is connected. Each can then be switched on
+// and off at runtime.
 // #define ENABLE_THUNDER
 // #define ENABLE_RUMBLE
 #if CONFIG_IDF_TARGET_ESP32
@@ -76,21 +77,3 @@
 // thunders for flashes that start in it, so the thunder comes from the right
 // direction. false = this cloud thunders for every flash (one speaker setup).
 #define THUNDER_OWN_FLASHES_ONLY false
-
-// Music mode (optional, leader only) ----------------------------------------
-// I2S microphone (INMP441 or similar, L/R pin to GND): the cloud flashes on
-// the beat, without thunder. Switch it on with a double click or in Home
-// Assistant.
-// #define ENABLE_MICROPHONE
-#if CONFIG_IDF_TARGET_ESP32
-#define MIC_SCK_PIN 26
-#define MIC_WS_PIN 27
-#define MIC_SD_PIN 33
-#else
-#define MIC_SCK_PIN 1
-#define MIC_WS_PIN 3
-#define MIC_SD_PIN 0
-#endif
-// Beats quieter than this are ignored. Raise it if the cloud flashes in a
-// quiet room, lower it if it misses quiet music.
-#define MIC_NOISE_FLOOR 20000

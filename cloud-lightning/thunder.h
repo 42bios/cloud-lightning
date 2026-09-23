@@ -21,8 +21,10 @@
  *   channel arrives spread out over time) and the more strokes it had, then
  *   fades out. Use sound files at least 15 s long.
  *
- * The vibration motor only rumbles with close thunder (< RUMBLE_MAX_KM):
- * a hard jolt for a crack, then a decaying, uneven rumble.
+ * The vibration motor is a rare extra: only a strike right above the cloud
+ * (< RUMBLE_MAX_KM) can make it tremble, and only now and then
+ * (RUMBLE_CHANCE_PERCENT, at most once per RUMBLE_MIN_GAP_MS): a hard jolt,
+ * then a short, decaying, uneven rumble.
  */
 
 #ifndef CLOUD_THUNDER_H
@@ -38,7 +40,10 @@ const unsigned int THUNDER_MAX_MS = 15000;
 const unsigned long THUNDER_FADE_STEP_MS = 100;
 const uint8_t THUNDER_QUEUE_SIZE = 4;
 
-const float RUMBLE_MAX_KM = 8;       // only close thunder can be felt
+const float RUMBLE_MAX_KM = 3;       // only a strike right above can be felt
+const uint8_t RUMBLE_CHANCE_PERCENT = 50;
+const unsigned long RUMBLE_MIN_GAP_MS = 20000;
+const unsigned int RUMBLE_MAX_MS = 2500;
 const uint8_t RUMBLE_MIN_PWM = 70;   // below this most motors don't turn
 const unsigned long RUMBLE_STEP_MS = 30;
 
@@ -177,16 +182,24 @@ public:
     analogWrite(pin, 0);
   }
 
-  // Schedules the rumble for a flash at the given distance.
+  bool isEnabled() const {
+    return enabled;
+  }
+
+  // Maybe schedules a rumble for a flash at the given distance.
   void strikeAt(float km, uint8_t strokes) {
-    if (!enabled || km < 0 || km > RUMBLE_MAX_KM || pending >= THUNDER_QUEUE_SIZE) {
+    if (!enabled || km < 0 || km > RUMBLE_MAX_KM || pending >= THUNDER_QUEUE_SIZE ||
+        random(100) >= RUMBLE_CHANCE_PERCENT ||
+        (hasRumbled && millis() - lastRumbleAt < RUMBLE_MIN_GAP_MS)) {
       return;
     }
+    hasRumbled = true;
+    lastRumbleAt = millis();
     Pending &p = queue[pending++];
     p.at = millis() + thunderDelayMs(km);
-    p.durationMs = thunderDurationMs(km, strokes) / 2;  // felt shorter than heard
-    p.strength = 255 - (uint8_t)(km / RUMBLE_MAX_KM * 120);
-    p.crack = km < THUNDER_CLOSE_KM;
+    unsigned int duration = thunderDurationMs(km, strokes) / 2;  // felt shorter than heard
+    p.durationMs = duration < RUMBLE_MAX_MS ? duration : RUMBLE_MAX_MS;
+    p.strength = 255 - (uint8_t)(km / RUMBLE_MAX_KM * 100);
   }
 
   // Call from loop().
@@ -212,8 +225,8 @@ public:
       active = false;
       return;
     }
-    // A crack starts with a hard jolt, then the rumble decays unevenly.
-    float envelope = current.crack && t < 150 ? 1.0 : exp(-3.0 * t / current.durationMs);
+    // A hard jolt first, then the rumble decays unevenly.
+    float envelope = t < 150 ? 1.0 : exp(-3.0 * t / current.durationMs);
     int level = current.strength * envelope * random(45, 101) / 100;
     analogWrite(pin, level >= RUMBLE_MIN_PWM ? level : 0);
   }
@@ -223,7 +236,6 @@ private:
     unsigned long at;
     unsigned int durationMs;
     uint8_t strength;
-    bool crack;
   };
 
   uint8_t pin;
@@ -234,6 +246,8 @@ private:
   bool active = false;
   unsigned long startedAt = 0;
   unsigned long lastStepAt = 0;
+  bool hasRumbled = false;
+  unsigned long lastRumbleAt = 0;
 };
 
 #endif

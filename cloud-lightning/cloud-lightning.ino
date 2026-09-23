@@ -31,9 +31,10 @@
 #include <Adafruit_NeoPixel.h>
 #include "lightning.h"
 
-// Optional thunder (see thunder.h): sound via a DFPlayer Mini MP3 module
-// and/or a vibration motor on a PWM pin. Uncomment what is connected. Both
-// can then be switched on and off at runtime with the "t" command.
+// Optional (see thunder.h): thunder sound via a DFPlayer Mini MP3 module and
+// a vibration motor on a PWM pin that now and then trembles with a strike
+// right above. Uncomment what is connected. They can then be switched on and
+// off at runtime with the "t" (sound) and "v" (vibration) commands.
 // #define ENABLE_THUNDER
 // #define ENABLE_RUMBLE
 
@@ -45,7 +46,6 @@ CloudLightning lightning(strip);
 
 #if defined(ENABLE_THUNDER) || defined(ENABLE_RUMBLE)
 #include "thunder.h"
-bool thunderOn = true;
 #endif
 
 #ifdef ENABLE_THUNDER
@@ -83,7 +83,7 @@ void setup() {
 void loop() {
   handleCommand(readFromBluetooth());
 
-  Flash flash;
+  Flash flash = {};
   bool flashed = lightning.update(flash);
 #ifdef ENABLE_THUNDER
   if (flashed) {
@@ -103,7 +103,8 @@ void loop() {
 /**
  * f      = start a short thunderstorm
  * a      = toggle ambient mode (endless distant storm)
- * t      = toggle thunder (sound and vibration)
+ * t      = toggle thunder sound
+ * v      = toggle vibration
  * s      = stop everything
  * b<km>  = real strike at the given distance, e.g. "b12.5"
  */
@@ -117,17 +118,19 @@ void handleCommand(char command) {
       Serial.println(lightning.ambient() ? F("ambient on") : F("ambient off"));
       break;
     case 't':
-#if defined(ENABLE_THUNDER) || defined(ENABLE_RUMBLE)
-      thunderOn = !thunderOn;
 #ifdef ENABLE_THUNDER
-      thunder.setEnabled(thunderOn);
-#endif
-#ifdef ENABLE_RUMBLE
-      rumble.setEnabled(thunderOn);
-#endif
-      Serial.println(thunderOn ? F("thunder on") : F("thunder off"));
+      thunder.setEnabled(!thunder.isEnabled());
+      Serial.println(thunder.isEnabled() ? F("sound on") : F("sound off"));
 #else
-      Serial.println(F("thunder not enabled in firmware"));
+      Serial.println(F("sound not enabled in firmware"));
+#endif
+      break;
+    case 'v':
+#ifdef ENABLE_RUMBLE
+      rumble.setEnabled(!rumble.isEnabled());
+      Serial.println(rumble.isEnabled() ? F("vibration on") : F("vibration off"));
+#else
+      Serial.println(F("vibration not enabled in firmware"));
 #endif
       break;
     case 's':

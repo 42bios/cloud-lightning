@@ -38,18 +38,18 @@ jobs:
           - name: esp32 WiFi leader, everything
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32
-            enable: SYNC THUNDER RUMBLE MICROPHONE
+            enable: SYNC THUNDER RUMBLE
           - name: esp32-c3 standalone follower + rumble
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32c3
             connectivity: NONE
             enable: SYNC RUMBLE
             config: s|^#define CLOUD_LEADER true.*|#define CLOUD_LEADER false|
-          - name: esp32-c3 standalone leader + microphone
+          - name: esp32-c3 standalone leader + thunder
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32c3
             connectivity: NONE
-            enable: SYNC MICROPHONE
+            enable: SYNC THUNDER
           - name: esp32-c6 Zigbee
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr
@@ -58,7 +58,7 @@ jobs:
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr
             connectivity: ZIGBEE
-            enable: SYNC THUNDER RUMBLE MICROPHONE
+            enable: SYNC THUNDER RUMBLE
     env:
       ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: https://espressif.github.io/arduino-esp32/package_esp32_index.json
     steps:

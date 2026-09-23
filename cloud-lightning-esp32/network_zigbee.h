@@ -6,8 +6,8 @@
  *   10  on/off light   Thunderstorm (on = start; turns off when it has ended)
  *   11  on/off light   Ambient storm
  *   12  analog output  Real strike: write the distance in km
- *   13  on/off light   Thunder, sound and vibration (only with thunder hardware)
- *   14  on/off light   Music mode (only with ENABLE_MICROPHONE)
+ *   13  on/off light   Thunder sound (only with ENABLE_THUNDER)
+ *   14  on/off light   Vibration (only with ENABLE_RUMBLE)
  *
  * The cloud starts pairing automatically when it is not in a network yet.
  * Hold the button for 10 s to leave the network and pair again.
@@ -22,17 +22,17 @@
 ZigbeeLight zbStorm(10);
 ZigbeeLight zbAmbient(11);
 ZigbeeAnalog zbStrike(12);
-#ifdef HAS_THUNDER
+#ifdef ENABLE_THUNDER
 ZigbeeLight zbSound(13);
 #endif
-#ifdef ENABLE_MICROPHONE
-ZigbeeLight zbMusic(14);
+#ifdef ENABLE_RUMBLE
+ZigbeeLight zbVibration(14);
 #endif
 
 // The Zigbee callbacks run in the Zigbee task. They only queue the request;
 // loop() carries it out, so the LEDs are never driven from two tasks at once.
 // setLight() also calls the callbacks; our own state updates are ignored.
-enum ZbRequestType : uint8_t { ZB_STORM, ZB_AMBIENT, ZB_SOUND, ZB_MUSIC, ZB_STRIKE };
+enum ZbRequestType : uint8_t { ZB_STORM, ZB_AMBIENT, ZB_SOUND, ZB_VIBRATION, ZB_STRIKE };
 struct ZbRequest {
   ZbRequestType type;
   bool on;
@@ -62,8 +62,8 @@ void onZbSound(bool on) {
   zbQueue(ZB_SOUND, on, 0);
 }
 
-void onZbMusic(bool on) {
-  zbQueue(ZB_MUSIC, on, 0);
+void onZbVibration(bool on) {
+  zbQueue(ZB_VIBRATION, on, 0);
 }
 
 void onZbStrike(float km) {
@@ -76,12 +76,12 @@ void networkPublishState() {
   }
   zbPublishing = true;
   zbStorm.setLight(lightning.stormActive());
-  zbAmbient.setLight(ambientEnabled());
-#ifdef HAS_THUNDER
-  zbSound.setLight(thunderEnabled());
+  zbAmbient.setLight(lightning.ambient());
+#ifdef ENABLE_THUNDER
+  zbSound.setLight(soundEnabled());
 #endif
-#ifdef ENABLE_MICROPHONE
-  zbMusic.setLight(musicEnabled());
+#ifdef ENABLE_RUMBLE
+  zbVibration.setLight(vibrationEnabled());
 #endif
   zbPublishing = false;
 }
@@ -98,13 +98,13 @@ void networkSetup() {
   Zigbee.addEndpoint(&zbStorm);
   Zigbee.addEndpoint(&zbAmbient);
   Zigbee.addEndpoint(&zbStrike);
-#ifdef HAS_THUNDER
+#ifdef ENABLE_THUNDER
   zbSound.onLightChange(onZbSound);
   Zigbee.addEndpoint(&zbSound);
 #endif
-#ifdef ENABLE_MICROPHONE
-  zbMusic.onLightChange(onZbMusic);
-  Zigbee.addEndpoint(&zbMusic);
+#ifdef ENABLE_RUMBLE
+  zbVibration.onLightChange(onZbVibration);
+  Zigbee.addEndpoint(&zbVibration);
 #endif
 
 #ifdef ZIGBEE_MODE_ZCZR
@@ -133,10 +133,10 @@ void networkLoop() {
         commandAmbient(request.on);
         break;
       case ZB_SOUND:
-        commandThunder(request.on);
+        commandSound(request.on);
         break;
-      case ZB_MUSIC:
-        commandMusic(request.on);
+      case ZB_VIBRATION:
+        commandVibration(request.on);
         break;
       case ZB_STRIKE:
         commandStrike(request.km);

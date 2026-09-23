@@ -26,9 +26,8 @@ The flash animation was rewritten to follow how real lightning behaves:
 All of the following is optional:
 
 - **Thunder:** follows the flash with the real delay of sound (about 3 s per km). It cracks sharply when close and only rumbles when far, lasts longer for distant strikes and flashes with more strokes, gets quieter with distance and stays silent beyond 15 km.
-- **Vibration:** a small vibration motor rumbles with close thunder: a hard jolt for a crack, then a decaying, uneven rumble. It is switched together with the thunder sound.
+- **Vibration:** a small vibration motor as a rare extra: now and then, when a strike hits right above the cloud, it trembles with the thunder. It has its own switch.
 - **Several clouds:** an installation with e.g. 3 clouds shares one storm over Bluetooth LE, without WiFi or Home Assistant. New clouds pair automatically when switched on next to the main cloud. The clouds don't just show the same: a flash stays inside one cloud, jumps on from cloud to cloud, or lights the others faintly from the side, and each cloud flickers in its own way.
-- **Music mode:** with a microphone the cloud flashes on the beat, without thunder.
 - **Home Assistant:** over WiFi (MQTT) or Zigbee, chosen in the configuration. Without it, the cloud runs its own random storm.
 - **Real lightning:** through Home Assistant the cloud shows real strikes around your location, reported by [Blitzortung.org](https://www.blitzortung.org).
 
@@ -62,7 +61,6 @@ Every ESP32 cloud has one button (the BOOT button, or your own on `BUTTON_PIN`).
 | | Main cloud (leader) | Additional cloud (follower) |
 | --- | --- | --- |
 | Click | Thunderstorm | Test flash |
-| Double click | Music mode on/off | – |
 | Hold 2 s | Ambient storm on/off | – |
 | Hold 6 s | New installation: forget all paired clouds | Forget the main cloud, pair again |
 | Hold 10 s | Zigbee: leave the network and pair again | – |
@@ -96,7 +94,8 @@ How the LEDs sit in the cloud matters as much as the code:
 | --- | --- |
 | `f` | Start a short thunderstorm (3–6 flashes) |
 | `a` | Toggle ambient mode (endless distant storm) |
-| `t` | Toggle thunder (sound and vibration) |
+| `t` | Toggle thunder sound |
+| `v` | Toggle vibration |
 | `s` | Stop everything |
 | `b<km>` | Show a real strike at the given distance, e.g. `b12.5` |
 
@@ -104,11 +103,11 @@ Send the commands over BLE, for example with the Adafruit Bluefruit app.
 
 ### ESP32 in Home Assistant
 
-**WiFi:** the cloud shows up as a device with the buttons *Thunderstorm* and *Stop* and the switches *Ambient storm*, *Thunder* (sound and vibration) and *Music mode*. Real strikes are published to `<DEVICE_ID>/strike` as the distance in km.
+**WiFi:** the cloud shows up as a device with the buttons *Thunderstorm* and *Stop* and the switches *Ambient storm*, *Thunder sound* and *Vibration*. Real strikes are published to `<DEVICE_ID>/strike` as the distance in km.
 
-**Zigbee:** the cloud offers on/off lights for *Thunderstorm* (turns off when the storm has ended), *Ambient storm*, *Thunder* and *Music mode*, and an analog output (a number in Home Assistant) that shows a real strike at the written distance in km. Rename the entities in Home Assistant as you like. It pairs automatically when it is not in a network yet. With ZHA the endpoints work directly. Zigbee2MQTT may need an external converter for the analog output.
+**Zigbee:** the cloud offers on/off lights for *Thunderstorm* (turns off when the storm has ended), *Ambient storm*, *Thunder sound* and *Vibration*, and an analog output (a number in Home Assistant) that shows a real strike at the written distance in km. Rename the entities in Home Assistant as you like. It pairs automatically when it is not in a network yet. With ZHA the endpoints work directly. Zigbee2MQTT may need an external converter for the analog output.
 
-In all modes, ambient mode and thunder are remembered across restarts.
+In all modes, ambient mode, sound and vibration are remembered across restarts.
 
 ### Several clouds (Bluetooth LE)
 
@@ -133,22 +132,12 @@ With thunder, either one cloud has a speaker and plays every thunder, or several
 
 BLE together with WiFi works on all ESP32 boards. BLE together with Zigbee on the ESP32-C6 compiles, but has not been tested on hardware yet.
 
-### Music mode (optional)
-
-An I2S microphone (INMP441 or similar, L/R pin to GND) on the main cloud makes all clouds flash on the beat. A beat is a short moment clearly louder than the last second, so it adapts to the volume by itself. Louder beats give brighter flashes that can jump between the clouds, quieter ones only a faint glow.
-
-There is no thunder or vibration in music mode: the speaker would trigger the microphone, and thunder does not go with music. The storm pauses and comes back when music mode is switched off.
-
-1. Wire the microphone (3.3 V, GND, SCK, WS, SD; pins in `config.h`).
-2. Uncomment `#define ENABLE_MICROPHONE` in `config.h`.
-3. Switch music mode on with a double click or in Home Assistant. If the cloud flashes in a quiet room, raise `MIC_NOISE_FLOOR`; if it misses quiet music, lower it.
-
 ### Configuration
 
 - Arduino: `NUM_LEDS`, `LED_PIN`, `ENABLE_THUNDER` and `ENABLE_RUMBLE` in `cloud-lightning.ino`.
-- ESP32: copy `config.example.h` to `config.h` and fill in connectivity, WiFi/MQTT, clouds, LEDs, thunder and microphone. `config.h` is ignored by git. Libraries: `Adafruit NeoPixel`; with WiFi also `PubSubClient`; with several clouds also `NimBLE-Arduino` (2.x). WiFi together with several clouds fills the default app partition to over 90 %; if it does not fit, choose the partition scheme "Minimal SPIFFS" or "Huge APP".
+- ESP32: copy `config.example.h` to `config.h` and fill in connectivity, WiFi/MQTT, clouds, LEDs, thunder and vibration. `config.h` is ignored by git. Libraries: `Adafruit NeoPixel`; with WiFi also `PubSubClient`; with several clouds also `NimBLE-Arduino` (2.x). WiFi together with several clouds fills the default app partition to over 90 %; if it does not fit, choose the partition scheme "Minimal SPIFFS" or "Huge APP".
 - `lightning.h`: colours (`CORE_R/G/B`, `SCATTER_R/G/B`), storm pace (`STORM_MEAN_PAUSE_MS`, `AMBIENT_MEAN_PAUSE_MS`) and how distance changes a flash (`CLOSE_STRIKE_KM`, `MAX_STRIKE_KM`).
-- `thunder.h`: number of sound files per folder (`THUNDER_TRACKS`), thunder length (`THUNDER_MIN_MS`, `THUNDER_MAX_MS`) and vibration (`RUMBLE_MAX_KM`, `RUMBLE_MIN_PWM`).
+- `thunder.h`: number of sound files per folder (`THUNDER_TRACKS`), thunder length (`THUNDER_MIN_MS`, `THUNDER_MAX_MS`) and how often the vibration comes (`RUMBLE_MAX_KM`, `RUMBLE_CHANCE_PERCENT`, `RUMBLE_MIN_GAP_MS`).
 - `lightning.h` and `thunder.h` are shared. The copies in both sketch folders must stay identical, because Arduino only compiles files inside the sketch folder. The GitHub workflow checks this and compiles all variants.
 
 ### Thunder (optional)
@@ -167,12 +156,12 @@ There is no thunder or vibration in music mode: the speaker would trigger the mi
    Set `THUNDER_TRACKS` in `thunder.h` to the number of files per folder.
 3. Uncomment `#define ENABLE_THUNDER` in `cloud-lightning.ino` (Arduino) or `config.h` (ESP32).
 
-**Vibration** uses a small vibration motor (coin or ERM, 3–5 V) switched by a logic-level MOSFET (e.g. AO3400) or an NPN transistor, with a flyback diode (e.g. 1N4148) across the motor. Never drive it straight from the pin.
+**Vibration** is a rare extra, not a rumble on every flash: only a strike right above the cloud (under 3 km) can trigger it, only about every second time, and at most once every 20 s. Then the cloud gets a hard jolt and a short, uneven rumble as the thunder arrives. It uses a small vibration motor (coin or ERM, 3–5 V) switched by a logic-level MOSFET (e.g. AO3400) or an NPN transistor, with a flyback diode (e.g. 1N4148) across the motor. Never drive it straight from the pin.
 
 1. Wire it to `RUMBLE_PIN`: Arduino pin 5, ESP32 GPIO 25, ESP32-C3 / -C6 GPIO 5.
 2. Uncomment `#define ENABLE_RUMBLE`.
 
-Switch sound and vibration on and off together with `t` (Arduino), in Home Assistant (*Thunder*), or they stay as saved.
+Sound and vibration are switched separately: `t` and `v` (Arduino) or the switches *Thunder sound* and *Vibration* in Home Assistant.
 
 ### Real lightning from Blitzortung.org (optional)
 

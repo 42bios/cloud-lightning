@@ -6,8 +6,7 @@
  * standalone with its own random storm (network_none.h), Home Assistant over
  * WiFi/MQTT (network_wifi.h) or Zigbee (network_zigbee.h). Several clouds
  * share one storm over Bluetooth LE (sync_ble.h), in any of these modes.
- * Optional: thunder sound and vibration (thunder.h), music mode with a
- * microphone (microphone.h).
+ * Optional: thunder sound and vibration (thunder.h).
  *
  * Needs the library "Adafruit NeoPixel", for WiFi also "PubSubClient", for
  * several clouds also "NimBLE-Arduino".
@@ -26,10 +25,6 @@
 #error "config.h: a follower cloud (CLOUD_LEADER false) needs ENABLE_SYNC"
 #endif
 
-#if defined(ENABLE_THUNDER) || defined(ENABLE_RUMBLE)
-#define HAS_THUNDER
-#endif
-
 #include "lightning.h"
 #include "button.h"
 
@@ -37,7 +32,7 @@ Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 CloudLightning lightning(strip);
 Button button(BUTTON_PIN);
 
-#ifdef HAS_THUNDER
+#if defined(ENABLE_THUNDER) || defined(ENABLE_RUMBLE)
 #include "thunder.h"
 #endif
 #ifdef ENABLE_THUNDER
@@ -46,15 +41,8 @@ Thunder thunder(Serial1);
 #ifdef ENABLE_RUMBLE
 Rumble rumble(RUMBLE_PIN);
 #endif
-#ifdef ENABLE_MICROPHONE
-#include "microphone.h"
-BeatDetector microphone;
-#endif
 
-Preferences settings;        // remembers ambient mode and thunder across restarts
-bool ambientWanted = false;  // ambient setting; paused while in music mode
-bool thunderOn = true;
-bool musicOn = false;
+Preferences settings; // remembers ambient mode, sound and vibration across restarts
 
 // Flash received from the leader, shown in loop().
 Flash receivedFlash;
@@ -64,13 +52,12 @@ bool hasReceivedFlash = false;
 void commandStorm();
 void commandStop();
 void commandAmbient(bool on);
-void commandThunder(bool on);
-void commandMusic(bool on);
+void commandSound(bool on);
+void commandVibration(bool on);
 void commandStrike(float km);
 void commandFlash(const Flash &flash);
-bool ambientEnabled();
-bool thunderEnabled();
-bool musicEnabled();
+bool soundEnabled();
+bool vibrationEnabled();
 
 #if defined(CONNECTIVITY_WIFI)
 #include "network_wifi.h"
@@ -91,30 +78,24 @@ void setup() {
   strip.show(); // Initialize all pixels to 'off'
 
   settings.begin("lightning", false);
-#ifdef CONNECTIVITY_NONE
-  // Without Home Assistant, the random storm is on unless switched off.
-  ambientWanted = settings.getBool("ambient", true);
-#else
-  ambientWanted = settings.getBool("ambient", false);
-#endif
   if (CLOUD_LEADER) {
-    lightning.setAmbient(ambientWanted);
+#ifdef CONNECTIVITY_NONE
+    // Without Home Assistant, the random storm is on unless switched off.
+    lightning.setAmbient(settings.getBool("ambient", true));
+#else
+    lightning.setAmbient(settings.getBool("ambient", false));
+#endif
   }
-  thunderOn = settings.getBool("thunder", true);
 #ifdef ENABLE_THUNDER
   Serial1.begin(9600, SERIAL_8N1, DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
-  thunder.setEnabled(thunderOn);
+  thunder.setEnabled(settings.getBool("sound", true));
 #endif
 #ifdef ENABLE_RUMBLE
   rumble.begin();
-  rumble.setEnabled(thunderOn);
+  rumble.setEnabled(settings.getBool("vibration", true));
 #endif
 
-#ifdef ENABLE_MICROPHONE
-  button.begin(CLOUD_LEADER);  // double click switches music mode
-#else
-  button.begin(false);
-#endif
+  button.begin();
   networkSetup();
 #ifdef ENABLE_SYNC
   syncSetup();
@@ -127,16 +108,8 @@ void loop() {
 #ifdef ENABLE_SYNC
   syncLoop();
 #endif
-#ifdef ENABLE_MICROPHONE
-  if (musicOn) {
-    float km = microphone.update();
-    if (km >= 0) {
-      lightning.pulseAt(km);
-    }
-  }
-#endif
 
-  Flash flash;
+  Flash flash = {};
   bool flashed = false;
   if (CLOUD_LEADER) {
     if (lightning.poll(flash)) {
@@ -154,9 +127,9 @@ void loop() {
     flashed = true;
   }
 
-  // No thunder in music mode, and with several speakers each cloud only
-  // thunders for the flashes that start in it.
-  bool thunderHere = flashed && !flash.quick && !musicOn &&
+  // With several speakers, each cloud only thunders for the flashes that
+  // start in it.
+  bool thunderHere = flashed &&
                      (!THUNDER_OWN_FLASHES_ONLY || flash.origin == lightning.cloudPosition());
 #ifdef ENABLE_THUNDER
   if (thunderHere) {
@@ -166,7 +139,7 @@ void loop() {
 #endif
 #ifdef ENABLE_RUMBLE
   if (thunderHere) {
-    rumble.strikeAt(flash.km, flash.strokes);
+    rumble.strikeAt(flash.km, flash.strokes);  // only now and then, see thunder.h
   }
   rumble.update();
 #endif
@@ -181,8 +154,7 @@ void loop() {
 }
 
 // Button:
-//   leader:   click = thunderstorm, double click = music mode,
-//             hold 2 s = ambient storm on/off,
+//   leader:   click = thunderstorm, hold 2 s = ambient storm on/off,
 //             hold 6 s = new installation (forget the paired clouds),
 //             hold 10 s = leave the Zigbee network
 //   follower: click = test flash, hold 6 s = forget the leader, pair again
@@ -202,16 +174,13 @@ void handleButton() {
       if (CLOUD_LEADER) {
         commandStorm();
       } else {
-        Flash test = {1.0f, 1, lightning.cloudPosition(), 0, 0, true, true, (uint32_t)esp_random()};
+        Flash test = {1.0f, 1, lightning.cloudPosition(), 0, 0, true, (uint32_t)esp_random()};
         lightning.render(test);
       }
       break;
-    case BUTTON_DOUBLE_CLICK:
-      commandMusic(!musicOn);
-      break;
     case BUTTON_HOLD_2S:
       if (CLOUD_LEADER) {
-        commandAmbient(!ambientWanted);
+        commandAmbient(!lightning.ambient());
       }
       break;
     case BUTTON_HOLD_6S:
@@ -227,20 +196,6 @@ void handleButton() {
   }
 }
 
-void saveSettings() {
-  settings.putBool("ambient", ambientWanted);
-  settings.putBool("thunder", thunderOn);
-}
-
-void cancelThunder() {
-#ifdef ENABLE_THUNDER
-  thunder.cancel();
-#endif
-#ifdef ENABLE_RUMBLE
-  rumble.cancel();
-#endif
-}
-
 void commandStorm() {
   lightning.startStorm();
   networkPublishState();
@@ -248,45 +203,36 @@ void commandStorm() {
 
 void commandStop() {
   lightning.stop();
-  ambientWanted = false;
-  musicOn = false;
-  cancelThunder();
-  saveSettings();
+#ifdef ENABLE_THUNDER
+  thunder.cancel();
+#endif
+#ifdef ENABLE_RUMBLE
+  rumble.cancel();
+#endif
+  settings.putBool("ambient", false);
   networkPublishState();
 }
 
 void commandAmbient(bool on) {
-  ambientWanted = on;
-  if (!musicOn) {
-    lightning.setAmbient(on);
-  }
-  saveSettings();
+  lightning.setAmbient(on);
+  settings.putBool("ambient", on);
   networkPublishState();
 }
 
-void commandThunder(bool on) {
-  thunderOn = on;
+void commandSound(bool on) {
 #ifdef ENABLE_THUNDER
   thunder.setEnabled(on);
-#endif
-#ifdef ENABLE_RUMBLE
-  rumble.setEnabled(on);
-#endif
-  saveSettings();
+  settings.putBool("sound", on);
   networkPublishState();
+#else
+  (void)on;
+#endif
 }
 
-// Music mode: flashes on the beat instead of the storm, and no thunder: the
-// speaker would trigger the microphone, and thunder does not go with music.
-void commandMusic(bool on) {
-#ifdef ENABLE_MICROPHONE
-  if (on && !microphone.begin()) {
-    Serial.println("Microphone failed to start");
-    on = false;
-  }
-  musicOn = on;
-  lightning.setAmbient(on ? false : ambientWanted);
-  cancelThunder();
+void commandVibration(bool on) {
+#ifdef ENABLE_RUMBLE
+  rumble.setEnabled(on);
+  settings.putBool("vibration", on);
   networkPublishState();
 #else
   (void)on;
@@ -302,14 +248,18 @@ void commandFlash(const Flash &flash) {
   hasReceivedFlash = true;
 }
 
-bool ambientEnabled() {
-  return ambientWanted;
+bool soundEnabled() {
+#ifdef ENABLE_THUNDER
+  return thunder.isEnabled();
+#else
+  return false;
+#endif
 }
 
-bool thunderEnabled() {
-  return thunderOn;
-}
-
-bool musicEnabled() {
-  return musicOn;
+bool vibrationEnabled() {
+#ifdef ENABLE_RUMBLE
+  return rumble.isEnabled();
+#else
+  return false;
+#endif
 }

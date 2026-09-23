@@ -2,8 +2,8 @@
  * WiFi + MQTT connectivity with Home Assistant MQTT discovery.
  *
  * The leader cloud announces buttons for thunderstorm and stop and switches
- * for ambient storm, thunder (sound and vibration) and music mode; follower
- * clouds (see sync_ble.h) only the thunder switch. Real strikes are published
+ * for ambient storm, thunder sound and vibration; follower clouds (see
+ * sync_ble.h) only the sound and vibration switches. Real strikes are published
  * to <DEVICE_ID>/strike as the distance in km.
  */
 
@@ -37,12 +37,12 @@ void publishDiscovery() {
     announce("button", "storm", "Thunderstorm", "mdi:weather-lightning", false);
     announce("button", "stop", "Stop", "mdi:stop", false);
     announce("switch", "ambient", "Ambient storm", "mdi:weather-lightning-rainy", true);
-#ifdef ENABLE_MICROPHONE
-    announce("switch", "music", "Music mode", "mdi:music", true);
-#endif
   }
-#ifdef HAS_THUNDER
-  announce("switch", "sound", "Thunder", "mdi:volume-high", true);
+#ifdef ENABLE_THUNDER
+  announce("switch", "sound", "Thunder sound", "mdi:volume-high", true);
+#endif
+#ifdef ENABLE_RUMBLE
+  announce("switch", "vibration", "Vibration", "mdi:vibrate", true);
 #endif
 }
 
@@ -51,13 +51,13 @@ void networkPublishState() {
     return;
   }
   if (CLOUD_LEADER) {
-    mqtt.publish(topic("ambient/state").c_str(), ambientEnabled() ? "ON" : "OFF", true);
-#ifdef ENABLE_MICROPHONE
-    mqtt.publish(topic("music/state").c_str(), musicEnabled() ? "ON" : "OFF", true);
-#endif
+    mqtt.publish(topic("ambient/state").c_str(), lightning.ambient() ? "ON" : "OFF", true);
   }
-#ifdef HAS_THUNDER
-  mqtt.publish(topic("sound/state").c_str(), thunderEnabled() ? "ON" : "OFF", true);
+#ifdef ENABLE_THUNDER
+  mqtt.publish(topic("sound/state").c_str(), soundEnabled() ? "ON" : "OFF", true);
+#endif
+#ifdef ENABLE_RUMBLE
+  mqtt.publish(topic("vibration/state").c_str(), vibrationEnabled() ? "ON" : "OFF", true);
 #endif
 }
 
@@ -82,9 +82,9 @@ void onMessage(char *topicName, byte *payload, unsigned int length) {
   } else if (name == topic("ambient/set")) {
     commandAmbient(value == "ON");
   } else if (name == topic("sound/set")) {
-    commandThunder(value == "ON");
-  } else if (name == topic("music/set")) {
-    commandMusic(value == "ON");
+    commandSound(value == "ON");
+  } else if (name == topic("vibration/set")) {
+    commandVibration(value == "ON");
   }
 }
 

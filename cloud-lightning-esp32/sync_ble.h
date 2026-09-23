@@ -27,7 +27,7 @@
 //   10    number of clouds
 //   11    flash counter (followers show each flash once)
 //   12    origin, 13 spread
-//   14    bits 0-1 direction+1, bit 2 glow, bit 3 quick
+//   14    bits 0-1 direction+1, bit 2 glow
 //   15    strokes
 //   16-17 km * 100
 //   18-21 seed
@@ -127,7 +127,7 @@ void syncAdvertiseLeader() {
   d[11] = syncCounter;
   d[12] = f.origin;
   d[13] = f.spread;
-  d[14] = (f.direction + 1) | (f.glow ? 4 : 0) | (f.quick ? 8 : 0);
+  d[14] = (f.direction + 1) | (f.glow ? 4 : 0);
   d[15] = f.strokes;
   uint16_t km = constrain(f.km * 100, 0.0f, 65535.0f);
   d[16] = km;
@@ -246,7 +246,6 @@ void syncHandleLeader(const uint8_t *d, int8_t rssi) {
   flash.spread = d[13];
   flash.direction = (int8_t)(d[14] & 3) - 1;
   flash.glow = d[14] & 4;
-  flash.quick = d[14] & 8;
   flash.strokes = d[15];
   flash.km = (d[16] | d[17] << 8) / 100.0;
   flash.seed = syncRead32(d + 18);

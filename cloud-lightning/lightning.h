@@ -52,10 +52,9 @@ const float CLOSE_STRIKE_KM = 15;
 // Strikes at or beyond this distance are shown at the minimum brightness.
 const float MAX_STRIKE_KM = 60;
 
-// Real strikes (strikeAt) and quick flashes (pulseAt) waiting to be shown.
+// Real strikes (strikeAt) waiting to be shown.
 const uint8_t STRIKE_QUEUE_SIZE = 4;
 const unsigned long STRIKE_MIN_GAP_MS = 300;
-const unsigned long PULSE_MIN_GAP_MS = 100;
 
 // Several clouds: delay per cloud when the channel jumps on to a neighbour.
 const unsigned long CLOUD_JUMP_DELAY_MS = 60;
@@ -71,7 +70,6 @@ struct Flash {
   uint8_t spread;    // how many clouds the channel jumps on to
   int8_t direction;  // direction of the jump: -1 left, 1 right, 0 both
   bool glow;         // the other clouds are lit faintly from the side
-  bool quick;        // short flash without leader, e.g. to music
   uint32_t seed;     // same seed -> same timing on every cloud
 };
 
@@ -133,13 +131,10 @@ public:
   // Shows a real strike at the given distance, e.g. reported by a lightning
   // detection network. Strikes are dropped while the queue is full.
   void strikeAt(float km) {
-    enqueue(km, false);
-  }
-
-  // Shows a quick flash (no leader, 1-2 strokes) as bright as a strike at
-  // the given distance, e.g. on a beat of the music.
-  void pulseAt(float km) {
-    enqueue(km, true);
+    if (km < 0 || queued >= STRIKE_QUEUE_SIZE) {
+      return;
+    }
+    queue[queued++] = km;
   }
 
   void stop() {
@@ -177,15 +172,13 @@ public:
   // render() it and call finished() afterwards.
   bool poll(Flash &flash) {
     float km;
-    bool quick = false;
     if (queued > 0 && (long)(millis() - nextQueuedAt) >= 0) {
-      km = queue[0].km;
-      quick = queue[0].quick;
+      km = queue[0];
       queued--;
       for (uint8_t i = 0; i < queued; i++) {
         queue[i] = queue[i + 1];
       }
-      source = quick ? FROM_PULSE : FROM_STRIKE;
+      source = FROM_STRIKE;
     } else if (stormFlashesLeft > 0 && (long)(millis() - nextStormFlashAt) >= 0) {
       stormFlashesLeft--;
       km = random(5, 41) / 10.0;                          // 0.5-4 km: right above us
@@ -201,8 +194,7 @@ public:
     km = (long)(km * 100 + 0.5) / 100.0;  // the precision the other clouds receive
     bool close = km < CLOSE_STRIKE_KM;
     flash.km = km;
-    flash.quick = quick;
-    flash.strokes = quick ? random(1, 3) : close ? random(2, 6) : 1;
+    flash.strokes = close ? random(2, 6) : 1;
     flash.origin = random(clouds);
     flash.spread = 0;
     flash.direction = 0;
@@ -225,9 +217,6 @@ public:
     switch (source) {
       case FROM_STRIKE:
         nextQueuedAt = millis() + STRIKE_MIN_GAP_MS;
-        break;
-      case FROM_PULSE:
-        nextQueuedAt = millis() + PULSE_MIN_GAP_MS;
         break;
       case FROM_STORM:
         nextStormFlashAt = millis() + randomPause(STORM_MEAN_PAUSE_MS);
@@ -276,11 +265,9 @@ public:
     tint = constrain(scatter, 0, 255);
 
     // Stepped leader: a few faint flickers before the main stroke.
-    if (!flash.quick) {
-      for (int i = timing.range(2, 6); i > 0; i--) {
-        show(center, local.range(peak / 6, peak / 3 + 1), falloff);
-        delay(timing.range(5, 25));
-      }
+    for (int i = timing.range(2, 6); i > 0; i--) {
+      show(center, local.range(peak / 6, peak / 3 + 1), falloff);
+      delay(timing.range(5, 25));
     }
 
     int level = peak;
@@ -291,7 +278,7 @@ public:
       delay(timing.range(10, 40));
 
       // Continuing current: the channel keeps glowing and flickering.
-      if (!flash.quick && timing.range(0, 5) == 0) {
+      if (timing.range(0, 5) == 0) {
         long steps = timing.range(3, 14);
         for (long i = 0; i < steps; i++) {
           show(center, visible ? level * local.range(55, 90) / 100 : 0, falloff);
@@ -321,11 +308,7 @@ public:
   }
 
 private:
-  enum Source { FROM_STRIKE, FROM_PULSE, FROM_STORM, FROM_AMBIENT };
-  struct Queued {
-    float km;
-    bool quick;
-  };
+  enum Source { FROM_STRIKE, FROM_STORM, FROM_AMBIENT };
 
   Adafruit_NeoPixel &strip;
   uint8_t clouds = 1;
@@ -334,20 +317,11 @@ private:
   bool ambientOn = false;
   unsigned long nextStormFlashAt = 0;
   unsigned long nextAmbientFlashAt = 0;
-  Queued queue[STRIKE_QUEUE_SIZE];
+  float queue[STRIKE_QUEUE_SIZE];
   uint8_t queued = 0;
   unsigned long nextQueuedAt = 0;
   Source source = FROM_STRIKE;
   uint8_t tint = 0;  // scatter colour of the current flash
-
-  void enqueue(float km, bool quick) {
-    if (km < 0 || queued >= STRIKE_QUEUE_SIZE) {
-      return;
-    }
-    queue[queued].km = km;
-    queue[queued].quick = quick;
-    queued++;
-  }
 
   // falloff: how fast the light fades towards the neighbouring LEDs
   // (0 = whole cloud evenly lit, 1 = half per LED, ...). LEDs away from the
