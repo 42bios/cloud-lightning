@@ -29,58 +29,33 @@
  */
 
 #include <Adafruit_NeoPixel.h>
+#include "lightning.h"
 
-// Parameter 1 = number of pixels in strip
-// Parameter 2 = pin number (most are valid)
-// Parameter 3 = pixel type flags, add together as needed:
-//   NEO_RGB     Pixels are wired for RGB bitstream
-//   NEO_GRB     Pixels are wired for GRB bitstream
-//   NEO_KHZ400  400 KHz bitstream (e.g. FLORA pixels)
-//   NEO_KHZ800  800 KHz bitstream (e.g. High Density LED strip)
-int NUM_LEDS = 4;
-int LED_PIN = 4;
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+// Optional thunder sound via a DFPlayer Mini MP3 module.
+// Needs the "DFRobotDFPlayerMini" library and thunder MP3s on the SD card
+// (0001.mp3 ... 000N.mp3 in the root or in /mp3). Uncomment to enable.
+// #define ENABLE_THUNDER
 
-int currentDataPoint = 0;
+// More LEDs spread across the cloud make the flashes look more spatial.
+const int NUM_LEDS = 4;
+const int LED_PIN = 4;
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+CloudLightning lightning(strip);
 
-// Simple moving average plot
-int NUM_Y_VALUES = 17;
+#ifdef ENABLE_THUNDER
+#include <SoftwareSerial.h>
+#include <DFRobotDFPlayerMini.h>
 
-float yValues[] = {
-  0,
-  7,
-  10,
-  9,
-  7.1,
-  7.5,
-  7.4,
-  12,
-  15,
-  10,
-  0,
-  3,
-  3.5,
-  4,
-  1,
-  7,
-  1
-};
+const int DFPLAYER_RX_PIN = 10; // Arduino RX <- DFPlayer TX
+const int DFPLAYER_TX_PIN = 11; // Arduino TX -> DFPlayer RX (via 1k resistor)
+const int THUNDER_TRACKS = 3;
 
-float simple_moving_average_previous = 0;
-float random_moving_average_previous = 0;
-
-typedef float (*BrightnessFn)();
-BrightnessFn functionPtrs[2];
-const int NUM_FUNCTIONS = 2;
-
-uint8_t toChannel(float brightness) {
-  int scaledWhite = (int)(brightness * 500.0f);
-  if (scaledWhite < 0) {
-    scaledWhite = -scaledWhite;
-  }
-  scaledWhite = constrain(scaledWhite, 0, 255);
-  return (uint8_t)scaledWhite;
-}
+SoftwareSerial dfSerial(DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
+DFRobotDFPlayerMini dfPlayer;
+bool dfPlayerReady = false;
+unsigned long thunderAt = 0;
+uint8_t thunderVolume = 0; // 0 = no thunder pending
+#endif
 
 void setup() {
   // Setup the Serial connection to talk over Bluetooth
@@ -90,38 +65,41 @@ void setup() {
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
 
-  // initializes the array of function pointers.
-  functionPtrs[0] = simple_moving_average;
-  functionPtrs[1] = random_moving_average;
+#ifdef ENABLE_THUNDER
+  dfSerial.begin(9600);
+  dfPlayerReady = dfPlayer.begin(dfSerial);
+#endif
 }
 
 void loop() {
-  char trigger = readFromBluetooth();
-  if (trigger == 'f') {
-    for (int i = 0; i < 10; i++) {
-      lightningStrike(random(NUM_LEDS));
-    }
+  handleCommand(readFromBluetooth());
+
+  uint8_t peak = lightning.update();
+  if (peak > 0) {
+    scheduleThunder(peak);
   }
-  turnAllPixelsOff();
-  delay(1000);
+  playPendingThunder();
 }
 
-void turnAllPixelsOff() {
-  for (int i = 0; i < NUM_LEDS; i++) {
-    strip.setPixelColor(i, 0);
+/**
+ * f = start a short thunderstorm
+ * a = toggle ambient mode (endless distant storm)
+ * s = stop everything
+ */
+void handleCommand(char command) {
+  switch (command) {
+    case 'f':
+      lightning.startStorm();
+      break;
+    case 'a':
+      lightning.setAmbient(!lightning.ambient());
+      Serial.println(lightning.ambient() ? F("ambient on") : F("ambient off"));
+      break;
+    case 's':
+      lightning.stop();
+      Serial.println(F("stopped"));
+      break;
   }
-  strip.show();
-}
-
-void lightningStrike(int pixel) {
-  float brightness = callFunction(random(NUM_FUNCTIONS));
-  uint8_t scaledWhite = toChannel(brightness);
-
-  strip.setPixelColor(pixel, strip.Color(scaledWhite, scaledWhite, scaledWhite));
-  strip.show();
-  delay(random(5, 100));
-  currentDataPoint++;
-  currentDataPoint = currentDataPoint%NUM_Y_VALUES;
 }
 
 /**
@@ -138,31 +116,26 @@ char readFromBluetooth() {
   return '\0';
 }
 
-float callFunction(int index) {
-  return (*functionPtrs[index])(); //calls the function at the index of `index` in the array
+#ifdef ENABLE_THUNDER
+// Sound is much slower than light: close (bright) strikes rumble soon and
+// loud, farther ones later and quieter, distant sheet lightning stays silent.
+void scheduleThunder(uint8_t peak) {
+  if (!dfPlayerReady || thunderVolume != 0 || peak < CLOSE_STRIKE_PEAK) {
+    return;
+  }
+  thunderAt = millis() + map(peak, CLOSE_STRIKE_PEAK, 255, 4000, 300) + random(0, 300);
+  thunderVolume = map(peak, CLOSE_STRIKE_PEAK, 255, 12, 30);
 }
 
-// https://en.wikipedia.org/wiki/Moving_average#Simple_moving_average
-float simple_moving_average() {
-  uint32_t startingValue = currentDataPoint;
-  uint32_t endingValue = (currentDataPoint+1)%NUM_Y_VALUES;
-  float simple_moving_average_current = simple_moving_average_previous +
-                                  (yValues[startingValue])/NUM_Y_VALUES -
-                                  (yValues[endingValue])/NUM_Y_VALUES;
-
-  simple_moving_average_previous = simple_moving_average_current;
-  return simple_moving_average_current;
+void playPendingThunder() {
+  if (thunderVolume == 0 || (long)(millis() - thunderAt) < 0) {
+    return;
+  }
+  dfPlayer.volume(thunderVolume);
+  dfPlayer.play(random(1, THUNDER_TRACKS + 1));
+  thunderVolume = 0;
 }
-
-
-// Same as simple moving average, but with randomly-generated data points.
-float random_moving_average() {
-  float firstValue = random(1, 10);
-  float secondValue = random(1, 10);
-  float random_moving_average_current = random_moving_average_previous +
-                                  firstValue/NUM_Y_VALUES -
-                                  secondValue/NUM_Y_VALUES;
-  random_moving_average_previous = random_moving_average_current;
-
-  return random_moving_average_current;
-}
+#else
+void scheduleThunder(uint8_t) {}
+void playPendingThunder() {}
+#endif
