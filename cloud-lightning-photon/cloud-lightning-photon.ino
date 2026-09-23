@@ -1,7 +1,9 @@
 // This #include statement was automatically added by the Particle IDE.
 #include "neopixel/neopixel.h"
+#include "lightning.h"
 
 // IMPORTANT: Set pixel COUNT, PIN and TYPE
+// More LEDs spread across the cloud make the flashes look more spatial.
 #define PIXEL_COUNT 4
 #define PIXEL_PIN D0
 #define PIXEL_TYPE WS2812B
@@ -23,42 +25,7 @@
 //                    NOTE: RS Tri-Color LED's are grouped in sets of 3)
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, PIXEL_TYPE);
-
-int currentDataPoint = 0;
-
-// Simple moving average plot
-int NUM_Y_VALUES = 17;
-
-float yValues[] = {
-  0,
-  7,
-  10,
-  9,
-  7.1,
-  7.5,
-  7.4,
-  12,
-  15,
-  10,
-  0,
-  3,
-  3.5,
-  4,
-  1,
-  7,
-  1
-};
-
-float simple_moving_average_previous = 0;
-
-uint8_t toChannel(float brightness) {
-  int scaledWhite = (int)(brightness * 500.0f);
-  if (scaledWhite < 0) {
-    scaledWhite = -scaledWhite;
-  }
-  scaledWhite = constrain(scaledWhite, 0, 255);
-  return (uint8_t)scaledWhite;
-}
+CloudLightning lightning(strip);
 
 void setup() {
 
@@ -69,52 +36,32 @@ void setup() {
 }
 
 void loop() {
-
+    // The animation runs here, so the cloud function returns immediately.
+    lightning.update();
 }
 
+/**
+ * "f" = start a short thunderstorm, returns 1
+ * "a" = toggle ambient mode, returns 1 if now on, 0 if now off
+ * "s" = stop everything, returns 0
+ * anything else returns -1
+ */
 int triggerWeather(String command) {
 
     if (command == "f") {
-        for (int i = 0; i < 10; i++) {
-          lightningStrike(random(PIXEL_COUNT));
-        }
-        turnAllPixelsOff();
-        delay(1000);
+        lightning.startStorm();
         return 1;
     }
 
-    turnAllPixelsOff();
-    delay(1000);
-    return 0;
-}
+    if (command == "a") {
+        lightning.setAmbient(!lightning.ambient());
+        return lightning.ambient() ? 1 : 0;
+    }
 
-void turnAllPixelsOff() {
-  for (int i = 0; i < PIXEL_COUNT; i++) {
-    strip.setPixelColor(i, 0);
-  }
-  strip.show();
-}
+    if (command == "s") {
+        lightning.stop();
+        return 0;
+    }
 
-void lightningStrike(int pixel) {
-  float brightness = simple_moving_average();
-  uint8_t scaledWhite = toChannel(brightness);
-
-  strip.setPixelColor(pixel, strip.Color(scaledWhite, scaledWhite, scaledWhite));
-  strip.show();
-  delay(random(5, 100));
-  currentDataPoint++;
-  currentDataPoint = currentDataPoint%NUM_Y_VALUES;
-}
-
-
-// https://en.wikipedia.org/wiki/Moving_average#Simple_moving_average
-float simple_moving_average() {
-  uint32_t startingValue = currentDataPoint;
-  uint32_t endingValue = (currentDataPoint+1)%NUM_Y_VALUES;
-  float simple_moving_average_current = simple_moving_average_previous +
-                                  (yValues[startingValue])/NUM_Y_VALUES -
-                                  (yValues[endingValue])/NUM_Y_VALUES;
-
-  simple_moving_average_previous = simple_moving_average_current;
-  return simple_moving_average_current;
+    return -1;
 }
