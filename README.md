@@ -146,7 +146,7 @@ There is no thunder or vibration in music mode: the speaker would trigger the mi
 ### Configuration
 
 - Arduino: `NUM_LEDS`, `LED_PIN`, `ENABLE_THUNDER` and `ENABLE_RUMBLE` in `cloud-lightning.ino`.
-- ESP32: copy `config.example.h` to `config.h` and fill in connectivity, WiFi/MQTT, clouds, LEDs, thunder and microphone. `config.h` is ignored by git. Libraries: `Adafruit NeoPixel`; with WiFi also `PubSubClient`; with several clouds also `NimBLE-Arduino` (2.x).
+- ESP32: copy `config.example.h` to `config.h` and fill in connectivity, WiFi/MQTT, clouds, LEDs, thunder and microphone. `config.h` is ignored by git. Libraries: `Adafruit NeoPixel`; with WiFi also `PubSubClient`; with several clouds also `NimBLE-Arduino` (2.x). WiFi together with several clouds fills the default app partition to over 90 %; if it does not fit, choose the partition scheme "Minimal SPIFFS" or "Huge APP".
 - `lightning.h`: colours (`CORE_R/G/B`, `SCATTER_R/G/B`), storm pace (`STORM_MEAN_PAUSE_MS`, `AMBIENT_MEAN_PAUSE_MS`) and how distance changes a flash (`CLOSE_STRIKE_KM`, `MAX_STRIKE_KM`).
 - `thunder.h`: number of sound files per folder (`THUNDER_TRACKS`), thunder length (`THUNDER_MIN_MS`, `THUNDER_MAX_MS`) and vibration (`RUMBLE_MAX_KM`, `RUMBLE_MIN_PWM`).
 - `lightning.h` and `thunder.h` are shared. The copies in both sketch folders must stay identical, because Arduino only compiles files inside the sketch folder. The GitHub workflow checks this and compiles all variants.

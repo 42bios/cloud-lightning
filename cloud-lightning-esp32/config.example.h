@@ -7,6 +7,9 @@
 // NONE:   standalone. The cloud runs its own random storm and is controlled
 //         with its button. Any ESP32, e.g. a small ESP32-C3.
 // WiFi:   any ESP32 except the H2. Home Assistant via MQTT (discovery).
+//         WiFi together with ENABLE_SYNC fills the default app partition to
+//         over 90 %; if it does not fit, select Tools > Partition Scheme:
+//         "Minimal SPIFFS" or "Huge APP".
 // Zigbee: ESP32-C6 or ESP32-H2. Joins your existing Zigbee network (ZHA or
 //         Zigbee2MQTT) as a router. In the Arduino IDE select
 //         Tools > Zigbee mode: "Zigbee ZCZR (coordinator/router)" and
