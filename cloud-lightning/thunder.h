@@ -4,20 +4,34 @@
  *
  * Optional thunder sound via a DFPlayer Mini MP3 module.
  *
- * Shared by cloud-lightning (Arduino) and cloud-lightning-photon (Particle).
+ * Shared by cloud-lightning (Arduino) and cloud-lightning-esp32.
  * Both copies of this file must stay identical.
  *
  * Thunder follows the flash with the real delay of sound (about 3 s per km)
  * and gets quieter with distance; beyond THUNDER_MAX_KM it stays silent.
- * Put the sounds on the SD card as /mp3/0001.mp3, /mp3/0002.mp3, ...
+ *
+ * Like real thunder, it also changes with the flash:
+ * - close strikes crack sharply, distant ones only rumble, so the sound is
+ *   picked from one of three folders on the SD card:
+ *     /01/001.mp3, /01/002.mp3 ...  close: sharp crack   (< 3 km)
+ *     /02/001.mp3 ...               medium: rolling thunder (3-8 km)
+ *     /03/001.mp3 ...               distant: low rumble  (> 8 km)
+ * - it lasts longer the farther away the strike is (the sound of the long
+ *   channel arrives spread out over time) and the more strokes it had, then
+ *   fades out. Use sound files at least 15 s long.
  */
 
 #ifndef CLOUD_THUNDER_H
 #define CLOUD_THUNDER_H
 
 const float SPEED_OF_SOUND_KM_PER_S = 0.343;
-const float THUNDER_MAX_KM = 15;   // thunder is rarely audible beyond this
-const uint8_t THUNDER_TRACKS = 3;  // number of MP3 files in /mp3
+const float THUNDER_MAX_KM = 15;     // thunder is rarely audible beyond this
+const float THUNDER_CLOSE_KM = 3;
+const float THUNDER_MEDIUM_KM = 8;
+const uint8_t THUNDER_TRACKS[3] = {3, 3, 3};  // number of files in /01, /02, /03
+const unsigned int THUNDER_MIN_MS = 2500;
+const unsigned int THUNDER_MAX_MS = 15000;
+const unsigned long THUNDER_FADE_STEP_MS = 100;
 const uint8_t THUNDER_QUEUE_SIZE = 4;
 
 class Thunder {
@@ -38,27 +52,43 @@ public:
 
   void cancel() {
     pending = 0;
+    if (playing) {
+      send(0x16, 0);  // stop
+      playing = false;
+    }
   }
 
   // Schedules the thunder for a flash at the given distance.
-  void strikeAt(float km) {
+  void strikeAt(float km, uint8_t strokes) {
     if (!enabled || km < 0 || km > THUNDER_MAX_KM || pending >= THUNDER_QUEUE_SIZE) {
       return;
     }
-    queue[pending].at = millis() + (unsigned long)(km / SPEED_OF_SOUND_KM_PER_S * 1000);
-    queue[pending].volume = 30 - (uint8_t)(km / THUNDER_MAX_KM * 20);  // 30 close, 10 far
-    pending++;
+    Pending &p = queue[pending++];
+    p.at = millis() + (unsigned long)(km / SPEED_OF_SOUND_KM_PER_S * 1000);
+    p.volume = 30 - (uint8_t)(km / THUNDER_MAX_KM * 20);  // 30 close, 10 far
+    p.folder = km < THUNDER_CLOSE_KM ? 1 : km < THUNDER_MEDIUM_KM ? 2 : 3;
+    unsigned int duration = THUNDER_MIN_MS + km * 700 + strokes * 600;
+    p.durationMs = constrain(duration, THUNDER_MIN_MS, THUNDER_MAX_MS);
   }
 
-  // Call from loop(). Plays thunder that is due.
+  // Call from loop(). Starts thunder that is due and fades out the current one.
   void update() {
     for (uint8_t i = 0; i < pending; i++) {
       if ((long)(millis() - queue[i].at) >= 0) {
-        send(0x06, queue[i].volume);             // set volume (0-30)
-        delay(30);                               // DFPlayer needs a short gap between commands
-        send(0x12, random(1, THUNDER_TRACKS + 1)); // play /mp3/000N.mp3
+        play(queue[i]);
         queue[i] = queue[--pending];
         return;
+      }
+    }
+
+    if (playing && (long)(millis() - fadeAt) >= 0) {
+      if (volume <= 2) {
+        send(0x16, 0);  // stop
+        playing = false;
+      } else {
+        volume -= 2;
+        send(0x06, volume);
+        fadeAt = millis() + THUNDER_FADE_STEP_MS;
       }
     }
   }
@@ -66,13 +96,28 @@ public:
 private:
   struct Pending {
     unsigned long at;
+    unsigned int durationMs;
     uint8_t volume;
+    uint8_t folder;
   };
 
   Stream &player;
   bool enabled = true;
   Pending queue[THUNDER_QUEUE_SIZE];
   uint8_t pending = 0;
+  bool playing = false;
+  uint8_t volume = 0;
+  unsigned long fadeAt = 0;
+
+  void play(const Pending &p) {
+    volume = p.volume;
+    send(0x06, volume);                     // set volume (0-30)
+    delay(30);                              // DFPlayer needs a short gap between commands
+    uint8_t file = random(1, THUNDER_TRACKS[p.folder - 1] + 1);
+    send(0x0F, (uint16_t)p.folder << 8 | file);  // play /<folder>/<file>.mp3
+    playing = true;
+    fadeAt = millis() + p.durationMs;
+  }
 
   // DFPlayer serial frame: start, version, length, command, feedback,
   // parameter (2 bytes), checksum (2 bytes), end.

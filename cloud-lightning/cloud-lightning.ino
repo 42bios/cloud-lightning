@@ -70,14 +70,15 @@ void setup() {
 void loop() {
   handleCommand(readFromBluetooth());
 
-  float km = lightning.update();
+  Flash flash;
+  bool flashed = lightning.update(flash);
 #ifdef ENABLE_THUNDER
-  if (km >= 0) {
-    thunder.strikeAt(km);
+  if (flashed) {
+    thunder.strikeAt(flash.km, flash.strokes);
   }
   thunder.update();
 #else
-  (void)km;
+  (void)flashed;
 #endif
 }
 

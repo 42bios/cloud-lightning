@@ -11,27 +11,75 @@ jobs:
       - uses: actions/checkout@v4
       - name: Shared headers are identical in all sketches
         run: |
-          for f in lightning.h thunder.h; do
-            cmp cloud-lightning/$f cloud-lightning-photon/$f
-            cmp cloud-lightning/$f cloud-lightning-esp32/$f
-          done
+          cmp cloud-lightning/lightning.h cloud-lightning-esp32/lightning.h
+          cmp cloud-lightning/thunder.h cloud-lightning-esp32/thunder.h
 
   compile:
+    name: compile (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: [uno, esp32]
-        thunder: [false, true]
         include:
-          - target: uno
+          - name: arduino BLE
             sketch: cloud-lightning
             fqbn: arduino:avr:uno
             core: arduino:avr
-          - target: esp32
+          - name: arduino BLE + thunder
+            sketch: cloud-lightning
+            fqbn: arduino:avr:uno
+            core: arduino:avr
+            thunder: true
+          - name: esp32 WiFi
             sketch: cloud-lightning-esp32
             fqbn: esp32:esp32:esp32
             core: esp32:esp32
+          - name: esp32 WiFi + thunder
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32
+            core: esp32:esp32
+            thunder: true
+          - name: esp32 standalone
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32
+            core: esp32:esp32
+            config: >-
+              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
+              s|^// #define CONNECTIVITY_NONE|#define CONNECTIVITY_NONE|
+          - name: esp32 WiFi leader of 3 clouds + thunder
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32
+            core: esp32:esp32
+            thunder: true
+            config: >-
+              s|^#define CLOUD_COUNT 1|#define CLOUD_COUNT 3|
+          - name: esp32-c3 standalone follower of 3 clouds + thunder
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32c3
+            core: esp32:esp32
+            thunder: true
+            config: >-
+              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
+              s|^// #define CONNECTIVITY_NONE|#define CONNECTIVITY_NONE|;
+              s|^#define CLOUD_COUNT 1|#define CLOUD_COUNT 3|;
+              s|^#define CLOUD_POSITION 0|#define CLOUD_POSITION 1|;
+              s|^#define CLOUD_LEADER true|#define CLOUD_LEADER false|
+          - name: esp32-c6 Zigbee
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr
+            core: esp32:esp32
+            config: >-
+              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
+              s|^// #define CONNECTIVITY_ZIGBEE|#define CONNECTIVITY_ZIGBEE|
+          - name: esp32-c6 Zigbee leader of 3 clouds + thunder
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=zigbee_zczr
+            core: esp32:esp32
+            thunder: true
+            config: >-
+              s|^#define CONNECTIVITY_WIFI|// #define CONNECTIVITY_WIFI|;
+              s|^// #define CONNECTIVITY_ZIGBEE|#define CONNECTIVITY_ZIGBEE|;
+              s|^#define CLOUD_COUNT 1|#define CLOUD_COUNT 3|
     env:
       ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: https://espressif.github.io/arduino-esp32/package_esp32_index.json
     steps:
@@ -41,14 +89,21 @@ jobs:
         run: |
           arduino-cli core update-index
           arduino-cli core install ${{ matrix.core }}
-          arduino-cli lib install "Adafruit NeoPixel" PubSubClient
+          arduino-cli lib install "Adafruit NeoPixel" PubSubClient NimBLE-Arduino
       - name: Use example config
-        if: matrix.target == 'esp32'
-        run: cp cloud-lightning-esp32/config.example.h cloud-lightning-esp32/config.h
+        if: matrix.sketch == 'cloud-lightning-esp32'
+        run: |
+          cp cloud-lightning-esp32/config.example.h cloud-lightning-esp32/config.h
+          if [ -n "${{ matrix.config }}" ]; then
+            sed -i "${{ matrix.config }}" cloud-lightning-esp32/config.h
+          fi
       - name: Enable thunder
         if: matrix.thunder
         run: |
           sed -i 's|^// #define ENABLE_THUNDER|#define ENABLE_THUNDER|' ${{ matrix.sketch }}/*.ino ${{ matrix.sketch }}/*.h
           grep -q '^#define ENABLE_THUNDER' ${{ matrix.sketch }}/*
+      - name: Show config
+        if: matrix.sketch == 'cloud-lightning-esp32'
+        run: grep -E '^#define (CONNECTIVITY|CLOUD|ENABLE)' cloud-lightning-esp32/config.h
       - name: Compile
         run: arduino-cli compile --fqbn ${{ matrix.fqbn }} --warnings all ${{ matrix.sketch }}
