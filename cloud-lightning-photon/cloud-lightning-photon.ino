@@ -2,6 +2,16 @@
 #include "neopixel/neopixel.h"
 #include "lightning.h"
 
+// Optional thunder sound via a DFPlayer Mini MP3 module on Serial1 (TX/RX pins),
+// see thunder.h. Uncomment when the module is connected. It can then still be
+// switched on and off at runtime with the "t" command.
+// #define ENABLE_THUNDER
+
+#ifdef ENABLE_THUNDER
+#include "thunder.h"
+Thunder thunder(Serial1);
+#endif
+
 // IMPORTANT: Set pixel COUNT, PIN and TYPE
 // More LEDs spread across the cloud make the flashes look more spatial.
 #define PIXEL_COUNT 4
@@ -32,18 +42,33 @@ void setup() {
     strip.begin(); // Sends the start protocol for the LEDs.
     strip.show(); // Initialize all pixels to 'off'
 
+#ifdef ENABLE_THUNDER
+    Serial1.begin(9600);
+#endif
+
     Particle.function("lightning", triggerWeather);
 }
 
 void loop() {
     // The animation runs here, so the cloud function returns immediately.
-    lightning.update();
+    float km = lightning.update();
+#ifdef ENABLE_THUNDER
+    if (km >= 0) {
+        thunder.strikeAt(km);
+    }
+    thunder.update();
+#else
+    (void)km;
+#endif
 }
 
 /**
- * "f" = start a short thunderstorm, returns 1
- * "a" = toggle ambient mode, returns 1 if now on, 0 if now off
- * "s" = stop everything, returns 0
+ * "f"     = start a short thunderstorm, returns 1
+ * "a"     = toggle ambient mode, returns 1 if now on, 0 if now off
+ * "t"     = toggle thunder sound, returns 1 if now on, 0 if now off,
+ *           -2 if sound is not enabled in the firmware
+ * "s"     = stop everything, returns 0
+ * "b<km>" = real strike at the given distance, e.g. "b12.5", returns 1
  * anything else returns -1
  */
 int triggerWeather(String command) {
@@ -58,9 +83,30 @@ int triggerWeather(String command) {
         return lightning.ambient() ? 1 : 0;
     }
 
+    if (command == "t") {
+#ifdef ENABLE_THUNDER
+        thunder.setEnabled(!thunder.isEnabled());
+        return thunder.isEnabled() ? 1 : 0;
+#else
+        return -2;
+#endif
+    }
+
     if (command == "s") {
         lightning.stop();
+#ifdef ENABLE_THUNDER
+        thunder.cancel();
+#endif
         return 0;
+    }
+
+    if (command.startsWith("b")) {
+        String distance = command.substring(1);
+        distance.trim();
+        if (distance.length() > 0 && distance.charAt(0) >= '0' && distance.charAt(0) <= '9') {
+            lightning.strikeAt(distance.toFloat());
+            return 1;
+        }
     }
 
     return -1;

@@ -13,6 +13,9 @@
  * Inside a cloud the light spreads to the neighbouring LEDs and the channel
  * sometimes wanders. Pauses between flashes are exponentially distributed:
  * mostly short, occasionally long.
+ *
+ * Every flash has a distance: close strikes are bright with several strokes,
+ * distant ones are faint, diffuse sheet lightning.
  */
 
 #ifndef CLOUD_LIGHTNING_H
@@ -29,9 +32,15 @@ const uint8_t LIGHTNING_B = 255;
 const unsigned long STORM_MEAN_PAUSE_MS = 1200;
 const unsigned long AMBIENT_MEAN_PAUSE_MS = 8000;
 
-// Flashes at or above this peak are close strikes (loud thunder),
-// below it they are distant sheet lightning (no audible thunder).
-const uint8_t CLOSE_STRIKE_PEAK = 128;
+// Strikes closer than this get several strokes and light up a part of the
+// cloud; farther ones are single-stroke sheet lightning lighting all LEDs.
+const float CLOSE_STRIKE_KM = 15;
+// Strikes at or beyond this distance are shown at the minimum brightness.
+const float MAX_STRIKE_KM = 60;
+
+// Real strikes (strikeAt) waiting to be shown.
+const uint8_t STRIKE_QUEUE_SIZE = 4;
+const unsigned long STRIKE_MIN_GAP_MS = 300;
 
 class CloudLightning {
 public:
@@ -55,39 +64,56 @@ public:
     return ambientOn;
   }
 
+  // Shows a real strike at the given distance, e.g. reported by a lightning
+  // detection network. Strikes are dropped while the queue is full.
+  void strikeAt(float km) {
+    if (km < 0 || queuedStrikes >= STRIKE_QUEUE_SIZE) {
+      return;
+    }
+    strikeQueue[queuedStrikes++] = km;
+  }
+
   void stop() {
     stormFlashesLeft = 0;
     ambientOn = false;
+    queuedStrikes = 0;
     show(0, 0, 0);
   }
 
-  // Call from loop(). Returns the peak brightness (0-255) of the flash that
-  // just happened, or 0 if there was none. A higher peak means a closer strike.
-  // A flash blocks for at most ~1.5 s.
-  uint8_t update() {
+  // Call from loop(). Returns the distance in km of the flash that just
+  // happened, or -1 if there was none. A flash blocks for at most ~1.5 s.
+  float update() {
+    if (queuedStrikes > 0 && (long)(millis() - nextStrikeAt) >= 0) {
+      float km = strikeQueue[0];
+      queuedStrikes--;
+      for (uint8_t i = 0; i < queuedStrikes; i++) {
+        strikeQueue[i] = strikeQueue[i + 1];
+      }
+      flashAt(km);
+      nextStrikeAt = millis() + STRIKE_MIN_GAP_MS;
+      return km;
+    }
+
     if (stormFlashesLeft > 0) {
       if ((long)(millis() - nextStormFlashAt) < 0) {
-        return 0;
+        return -1;
       }
       stormFlashesLeft--;
-      uint8_t peak = flash(random(180, 256), random(2, 6), 1);
+      float km = random(5, 41) / 10.0;                // 0.5-4 km: right above us
+      flashAt(km);
       nextStormFlashAt = millis() + randomPause(STORM_MEAN_PAUSE_MS);
-      return peak;
+      return km;
     }
 
     if (ambientOn && (long)(millis() - nextAmbientFlashAt) >= 0) {
-      uint8_t peak;
-      if (random(4) == 0) {
-        peak = flash(random(CLOSE_STRIKE_PEAK, 256), random(1, 5), 1);
-      } else {
-        // Distant sheet lightning: dim, diffuse, single stroke.
-        peak = flash(random(50, CLOSE_STRIKE_PEAK), 1, 0);
-      }
+      float km = random(4) == 0 ? random(20, 101) / 10.0   // occasional strike 2-10 km
+                                : random(20, 61);          // mostly 20-60 km away
+      flashAt(km);
       nextAmbientFlashAt = millis() + randomPause(AMBIENT_MEAN_PAUSE_MS);
-      return peak;
+      return km;
     }
 
-    return 0;
+    return -1;
   }
 
 private:
@@ -96,10 +122,23 @@ private:
   bool ambientOn = false;
   unsigned long nextStormFlashAt = 0;
   unsigned long nextAmbientFlashAt = 0;
+  float strikeQueue[STRIKE_QUEUE_SIZE];
+  uint8_t queuedStrikes = 0;
+  unsigned long nextStrikeAt = 0;
+
+  void flashAt(float km) {
+    float closeness = 1 - constrain(km / MAX_STRIKE_KM, 0.0f, 1.0f);
+    uint8_t peak = 50 + closeness * closeness * 205 * random(80, 101) / 100;
+    if (km < CLOSE_STRIKE_KM) {
+      flash(peak, random(2, 6), 1);
+    } else {
+      flash(peak, 1, 0);
+    }
+  }
 
   // falloff: how fast the light fades towards the neighbouring LEDs
   // (0 = whole cloud evenly lit, 1 = half per LED, ...).
-  uint8_t flash(uint8_t peak, uint8_t strokes, uint8_t falloff) {
+  void flash(uint8_t peak, uint8_t strokes, uint8_t falloff) {
     int center = random(strip.numPixels());
 
     // Stepped leader: a few faint flickers before the main stroke.
@@ -130,7 +169,6 @@ private:
         }
       }
     }
-    return peak;
   }
 
   void show(int center, uint8_t level, uint8_t falloff) {

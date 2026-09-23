@@ -1,0 +1,70 @@
+# Home Assistant package: let the lightning cloud show real lightning strikes
+# near you, reported by the Blitzortung.org network.
+#
+# Needs:
+# - the "Blitzortung" integration (HACS). It uses your home coordinates (or a
+#   zone / person) and a radius you choose, and only reports strikes inside it.
+# - for the ESP32 cloud: the MQTT integration and a broker (e.g. Mosquitto add-on).
+#
+# Install: copy this file to /config/packages/ and enable packages in
+# configuration.yaml:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# Adjust the entity id below if you named the Blitzortung integration
+# differently (default name "Blitzortung" -> sensor.blitzortung_lightning_distance).
+
+input_boolean:
+  cloud_lightning_blitzortung:
+    name: Lightning cloud shows real strikes
+    icon: mdi:weather-lightning
+
+automation:
+  - id: cloud_lightning_blitzortung
+    alias: Lightning cloud - real strikes from Blitzortung
+    description: Sends every strike reported by Blitzortung to the lightning cloud.
+    mode: queued
+    max: 10
+    max_exceeded: silent
+    triggers:
+      # The distance sensor (and its lat/lon attributes) is updated for every
+      # new strike, so any change means a new strike.
+      - trigger: state
+        entity_id: sensor.blitzortung_lightning_distance
+    conditions:
+      - condition: state
+        entity_id: input_boolean.cloud_lightning_blitzortung
+        state: "on"
+      - condition: template
+        value_template: "{{ is_number(trigger.to_state.state) }}"
+    actions:
+      - variables:
+          # The cloud expects km; convert if Home Assistant shows miles.
+          km: >
+            {{ (trigger.to_state.state | float
+                * (1.609 if trigger.to_state.attributes.unit_of_measurement == 'mi' else 1))
+               | round(1) }}
+      # ESP32 cloud (cloud-lightning-esp32), topic = <DEVICE_ID>/strike
+      - action: mqtt.publish
+        data:
+          topic: cloud-lightning/strike
+          payload: "{{ km }}"
+      # Photon cloud instead: remove the action above and uncomment this one
+      # together with the rest_command below.
+      # - action: rest_command.cloud_lightning_photon
+      #   data:
+      #     command: "b{{ km }}"
+
+# Photon cloud only. Put device id and access token into secrets.yaml:
+#   particle_lightning_url: https://api.particle.io/v1/devices/<device id>/lightning
+#   particle_authorization: Bearer <access token>
+#
+# rest_command:
+#   cloud_lightning_photon:
+#     url: !secret particle_lightning_url
+#     method: post
+#     headers:
+#       authorization: !secret particle_authorization
+#     content_type: application/x-www-form-urlencoded
+#     payload: "args={{ command }}"

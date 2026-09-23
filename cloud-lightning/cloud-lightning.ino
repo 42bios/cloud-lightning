@@ -31,9 +31,9 @@
 #include <Adafruit_NeoPixel.h>
 #include "lightning.h"
 
-// Optional thunder sound via a DFPlayer Mini MP3 module.
-// Needs the "DFRobotDFPlayerMini" library and thunder MP3s on the SD card
-// (0001.mp3 ... 000N.mp3 in the root or in /mp3). Uncomment to enable.
+// Optional thunder sound via a DFPlayer Mini MP3 module (see thunder.h).
+// Uncomment when the module is connected. It can then still be switched
+// on and off at runtime with the "t" command.
 // #define ENABLE_THUNDER
 
 // More LEDs spread across the cloud make the flashes look more spatial.
@@ -44,22 +44,19 @@ CloudLightning lightning(strip);
 
 #ifdef ENABLE_THUNDER
 #include <SoftwareSerial.h>
-#include <DFRobotDFPlayerMini.h>
+#include "thunder.h"
 
 const int DFPLAYER_RX_PIN = 10; // Arduino RX <- DFPlayer TX
 const int DFPLAYER_TX_PIN = 11; // Arduino TX -> DFPlayer RX (via 1k resistor)
-const int THUNDER_TRACKS = 3;
 
 SoftwareSerial dfSerial(DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
-DFRobotDFPlayerMini dfPlayer;
-bool dfPlayerReady = false;
-unsigned long thunderAt = 0;
-uint8_t thunderVolume = 0; // 0 = no thunder pending
+Thunder thunder(dfSerial);
 #endif
 
 void setup() {
   // Setup the Serial connection to talk over Bluetooth
   Serial.begin(9600);
+  Serial.setTimeout(50); // for reading the distance of "b" commands
 
   // Neopixel setup
   strip.begin();
@@ -67,24 +64,29 @@ void setup() {
 
 #ifdef ENABLE_THUNDER
   dfSerial.begin(9600);
-  dfPlayerReady = dfPlayer.begin(dfSerial);
 #endif
 }
 
 void loop() {
   handleCommand(readFromBluetooth());
 
-  uint8_t peak = lightning.update();
-  if (peak > 0) {
-    scheduleThunder(peak);
+  float km = lightning.update();
+#ifdef ENABLE_THUNDER
+  if (km >= 0) {
+    thunder.strikeAt(km);
   }
-  playPendingThunder();
+  thunder.update();
+#else
+  (void)km;
+#endif
 }
 
 /**
- * f = start a short thunderstorm
- * a = toggle ambient mode (endless distant storm)
- * s = stop everything
+ * f      = start a short thunderstorm
+ * a      = toggle ambient mode (endless distant storm)
+ * t      = toggle thunder sound
+ * s      = stop everything
+ * b<km>  = real strike at the given distance, e.g. "b12.5" (see bridge/)
  */
 void handleCommand(char command) {
   switch (command) {
@@ -95,10 +97,29 @@ void handleCommand(char command) {
       lightning.setAmbient(!lightning.ambient());
       Serial.println(lightning.ambient() ? F("ambient on") : F("ambient off"));
       break;
+    case 't':
+#ifdef ENABLE_THUNDER
+      thunder.setEnabled(!thunder.isEnabled());
+      Serial.println(thunder.isEnabled() ? F("sound on") : F("sound off"));
+#else
+      Serial.println(F("sound not enabled in firmware"));
+#endif
+      break;
     case 's':
       lightning.stop();
+#ifdef ENABLE_THUNDER
+      thunder.cancel();
+#endif
       Serial.println(F("stopped"));
       break;
+    case 'b': {
+      String distance = Serial.readStringUntil('\n');
+      distance.trim();
+      if (distance.length() > 0 && distance[0] >= '0' && distance[0] <= '9') {
+        lightning.strikeAt(distance.toFloat());
+      }
+      break;
+    }
   }
 }
 
@@ -115,27 +136,3 @@ char readFromBluetooth() {
   }
   return '\0';
 }
-
-#ifdef ENABLE_THUNDER
-// Sound is much slower than light: close (bright) strikes rumble soon and
-// loud, farther ones later and quieter, distant sheet lightning stays silent.
-void scheduleThunder(uint8_t peak) {
-  if (!dfPlayerReady || thunderVolume != 0 || peak < CLOSE_STRIKE_PEAK) {
-    return;
-  }
-  thunderAt = millis() + map(peak, CLOSE_STRIKE_PEAK, 255, 4000, 300) + random(0, 300);
-  thunderVolume = map(peak, CLOSE_STRIKE_PEAK, 255, 12, 30);
-}
-
-void playPendingThunder() {
-  if (thunderVolume == 0 || (long)(millis() - thunderAt) < 0) {
-    return;
-  }
-  dfPlayer.volume(thunderVolume);
-  dfPlayer.play(random(1, THUNDER_TRACKS + 1));
-  thunderVolume = 0;
-}
-#else
-void scheduleThunder(uint8_t) {}
-void playPendingThunder() {}
-#endif

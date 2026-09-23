@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shared-headers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shared headers are identical in all sketches
+        run: |
+          for f in lightning.h thunder.h; do
+            cmp cloud-lightning/$f cloud-lightning-photon/$f
+            cmp cloud-lightning/$f cloud-lightning-esp32/$f
+          done
+
+  compile:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [uno, esp32]
+        thunder: [false, true]
+        include:
+          - target: uno
+            sketch: cloud-lightning
+            fqbn: arduino:avr:uno
+            core: arduino:avr
+          - target: esp32
+            sketch: cloud-lightning-esp32
+            fqbn: esp32:esp32:esp32
+            core: esp32:esp32
+    env:
+      ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install core and libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install ${{ matrix.core }}
+          arduino-cli lib install "Adafruit NeoPixel" PubSubClient
+      - name: Use example config
+        if: matrix.target == 'esp32'
+        run: cp cloud-lightning-esp32/config.example.h cloud-lightning-esp32/config.h
+      - name: Enable thunder
+        if: matrix.thunder
+        run: sed -i 's|^// #define ENABLE_THUNDER|#define ENABLE_THUNDER|' ${{ matrix.sketch }}/*.ino ${{ matrix.sketch }}/*.h
+      - name: Compile
+        run: arduino-cli compile --fqbn ${{ matrix.fqbn }} --warnings all ${{ matrix.sketch }}
